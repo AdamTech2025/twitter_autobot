@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tweet Generator Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 20px;
+      border-radius: 5px;
+      color: white;
+      font-weight: bold;
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.5s ease-in-out;
+    }
+    .toast.show { opacity: 1; }
+    .toast.success { background-color: #4CAF50; }
+    .toast.error { background-color: #f44336; }
+    .toast.warning { background-color: #ff9800; }
+    .toast.info { background-color: #2196F3; }
+  </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-6">
+  <div id="toast-container"></div>
+  <!-- Navigation Bar -->
+  <nav class="flex justify-between items-center mb-8">
+    <h1 class="text-4xl font-extrabold">🧠 Automated Tweet Generator</h1>
+    <div>
+      <button id="connectTwitter" class="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded font-semibold">Connect Twitter</button>
+      <button id="disconnectTwitter" class="hidden bg-red-600 hover:bg-red-700 px-6 py-3 rounded font-semibold ml-4">Disconnect Twitter</button>
+    </div>
+  </nav>
+
+  <div class="max-w-6xl mx-auto">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mb-4">
+          {% for category, message in messages %}
+            <div class="p-3 rounded text-white {% if category == 'error' or category == 'danger' %}bg-red-500{% elif category == 'success' %}bg-green-500{% elif category == 'warning' %}bg-yellow-500{% else %}bg-blue-500{% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    <!-- Section: Controls -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
+      <!-- Generation Settings -->
+      <div class="bg-gray-800 p-6 rounded shadow">
+        <h2 class="text-xl font-semibold mb-4">Generation Settings</h2>
+
+        <label class="block mb-2">Your Email for Notifications:</label>
+        <div class="flex items-center mb-4">
+          <input
+            type="email"
+            id="emailInput"
+            class="w-full p-2 rounded bg-gray-700 border border-gray-600 mr-2"
+            placeholder="example@domain.com"
+            value="{{ email if email else '' }}"
+          />
+        </div>
+
+        <label class="block mb-2">Use Trending Topics (Select for AI):</label>
+        <div class="flex flex-wrap gap-3 mb-4" id="trendingTopics">
+          <label class="flex items-center space-x-2 bg-gray-700 px-3 py-1 rounded cursor-pointer">
+            <input type="checkbox" value="#AI" class="form-checkbox trending-topic-cb">
+            <span>#AI</span>
+          </label>
+          <label class="flex items-center space-x-2 bg-gray-700 px-3 py-1 rounded cursor-pointer">
+            <input type="checkbox" value="#TechNews" class="form-checkbox trending-topic-cb">
+            <span>#TechNews</span>
+          </label>
+          <label class="flex items-center space-x-2 bg-gray-700 px-3 py-1 rounded cursor-pointer">
+            <input type="checkbox" value="#SocialMediaTrends" class="form-checkbox trending-topic-cb">
+            <span>#SocialMediaTrends</span>
+          </label>
+          <!-- Custom topics will be appended here by JS -->
+        </div>
+
+        <label class="block mb-2 mt-4">Add Custom Topic:</label>
+        <div class="flex items-center space-x-2 mb-4">
+          <input
+            type="text"
+            id="customTopicInput"
+            class="flex-1 p-2 rounded bg-gray-700 border border-gray-600"
+            placeholder="#YourCustomTopic"
+          />
+          <button type="button" onclick="addCustomTopic()" class="bg-blue-500 hover:bg-blue-600 py-2 px-4 rounded">Add</button>
+        </div>
+        <div class="flex justify-end mt-6">
+          <button id="saveSettingsButton" class="bg-green-600 hover:bg-green-700 py-2 px-6 rounded text-lg font-semibold">Save Settings</button>
+        </div>
+      </div>
+
+      <!-- Scheduling Settings -->
+      <!--
+      <div class="bg-gray-800 p-6 rounded shadow">
+        <h2 class="text-xl font-semibold mb-4">Scheduling Settings</h2>
+        <label class="block mb-2">Add Timings (HH:MM):</label>
+        <div class="flex items-center mb-4 space-x-2">
+          <input type="time" id="tweetTimeInput" class="p-2 rounded bg-gray-700 border border-gray-600" />
+          <button onclick="addConfiguredTime()" class="bg-blue-600 hover:bg-blue-700 py-2 px-4 rounded">Add Time</button>
+        </div>
+        <label class="block mb-1">Scheduled Times for Content Generation:</label>
+        <ul id="timingListDisplay" class="space-y-2 list-disc list-inside pl-4 mb-4">
+          Populated by JS from server data and new additions
+        </ul>
+        <div class="flex justify-end mt-6">
+          <button id="saveScheduleButton" class="bg-green-600 hover:bg-green-700 py-2 px-6 rounded text-lg font-semibold">Save Schedule</button>
+        </div>
+      </div>
+      -->
+    </div>
+
+    <!-- Section: History Table -->
+    <div class="bg-gray-800 p-6 rounded shadow mb-10">
+      <h2 class="text-2xl font-semibold mb-4">📜 AI Generated Content History</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full table-auto text-left">
+          <thead>
+            <tr class="text-gray-400 border-b border-gray-600">
+              <th class="p-2">Generated Content</th>
+              <th class="p-2">Screen Name</th>
+              <th class="p-2">Created At</th>
+              <th class="p-2">Status</th>
+              <th class="p-2">Posted At</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody">
+            {% if tweet_history %}
+              {% for item in tweet_history %}
+              <tr class="border-t border-gray-700">
+                <td class="p-2">{{ item.generated_content }}</td>
+                <td class="p-2">@{{ item.screen_name if item.screen_name else 'N/A' }}</td>
+                <td class="p-2">{{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.created_at else 'N/A' }}</td>
+                <td class="p-2 {% if item.status == 'posted' %}text-green-400{% elif item.status == 'pending_confirmation' %}text-yellow-400{% elif 'failed' in item.status %}text-red-400{% else %}text-gray-400{% endif %} ">{{ item.status.replace('_', ' ').title() }}</td>
+                <td class="p-2">{{ item.posted_at.strftime('%Y-%m-%d %H:%M:%S') if item.posted_at else '-' }}</td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr><td colspan="5" class="p-4 text-center text-gray-500">No generated content history yet.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const connectTwitterButton = document.getElementById('connectTwitter');
+    const disconnectTwitterButton = document.getElementById('disconnectTwitter');
+    const emailInput = document.getElementById('emailInput');
+    const customTopicInput = document.getElementById('customTopicInput');
+    const trendingTopicsDiv = document.getElementById('trendingTopics');
+    const saveSettingsButton = document.getElementById('saveSettingsButton');
+    const historyTableBody = document.getElementById('historyTableBody');
+
+    // Global store for current schedule times for UI management
+    let currentSelectedTopics = [];
+
+    function showToast(message, type = 'info') {
+      const toastContainer = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      toastContainer.appendChild(toast);
+      setTimeout(() => { toast.classList.add('show'); }, 10); // Slight delay to trigger transition
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => { toast.remove(); }, 500); // Remove after fade out
+      }, 3000);
+    }
+
+    // Load initial data from Flask template variables
+    const initialUserEmail = JSON.parse('{{ email | default(none) | tojson | e }}');
+    const initialTwitterConnected = JSON.parse('{{ twitter_connected | default(false) | tojson | e }}');
+    const initialUserTopics = JSON.parse('{{ current_topics | default([]) | tojson | e }}');
+
+    document.addEventListener('DOMContentLoaded', () => {
+      if (initialUserEmail && initialUserEmail !== 'None') {
+        emailInput.value = initialUserEmail;
+      }
+      updateTwitterButtonState(initialTwitterConnected);
+      loadUserTopics(initialUserTopics);
+
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.has('success')) { showToast(urlParams.get('success'), 'success'); }
+      if (urlParams.has('error'))   { showToast(urlParams.get('error'), 'error'); }
+      if (urlParams.has('info'))    { showToast(urlParams.get('info'), 'info'); }
+      if (urlParams.has('success') || urlParams.has('error') || urlParams.has('info')) {
+        window.history.replaceState({}, document.title, window.location.pathname); 
+      }
+      
+      const flashedMessages = JSON.parse('{{ get_flashed_messages(with_categories=true) | tojson | e }}');
+      if (flashedMessages && flashedMessages.length > 0) {
+          flashedMessages.forEach(flashMessage => {
+              const category = flashMessage[0]; 
+              const message = flashMessage[1];
+              showToast(message, category);
+          });
+      }
+    });
+
+    function updateTwitterButtonState(isConnected) {
+      if (isConnected) {
+        connectTwitterButton.textContent = 'Twitter Connected';
+        connectTwitterButton.classList.replace('bg-blue-600', 'bg-green-600');
+        connectTwitterButton.classList.add('cursor-not-allowed');
+        connectTwitterButton.disabled = true;
+        disconnectTwitterButton.classList.remove('hidden');
+      } else {
+        connectTwitterButton.textContent = 'Connect Twitter';
+        connectTwitterButton.classList.replace('bg-green-600', 'bg-blue-600'); // Ensure correct class replacement
+        connectTwitterButton.classList.remove('cursor-not-allowed');
+        connectTwitterButton.disabled = false;
+        disconnectTwitterButton.classList.add('hidden');
+      }
+    }
+
+    connectTwitterButton.onclick = () => { window.location.href = '/login/twitter'; };
+    disconnectTwitterButton.onclick = () => { window.location.href = '/disconnect-twitter'; };
+
+    function addCustomTopic() {
+      const value = customTopicInput.value.trim();
+      if (value !== '') {
+        if (!value.startsWith('#')) {
+          showToast('Custom topic must start with #', 'warning');
+          return;
+        }
+        // Avoid duplicate custom topics by checking existing ones
+        const existingCustomTopics = Array.from(trendingTopicsDiv.querySelectorAll('input[type="checkbox"]')).map(cb => cb.value);
+        if (existingCustomTopics.includes(value)) {
+          showToast('This topic is already added.', 'info');
+          return;
+        }
+
+        const id = 'custom_' + Math.random().toString(36).substring(2, 9);
+        const label = document.createElement('label');
+        label.className = 'flex items-center space-x-2 bg-gray-700 px-3 py-1 rounded cursor-pointer';
+        label.innerHTML = `<input type="checkbox" id="${id}" value="${value}" class="form-checkbox trending-topic-cb" checked><span>${value}</span>`;
+        trendingTopicsDiv.appendChild(label);
+        customTopicInput.value = '';
+      }
+    }
+
+    function loadUserTopics(topicsArray) {
+      let allTopicsSet = new Set();
+
+      if (topicsArray && topicsArray.length > 0) {
+        topicsArray.forEach(topic => {
+          if (topic) { // Ensure topic is not null or undefined before trimming
+            allTopicsSet.add(String(topic).trim());
+          }
+        });
+      }
+
+      // Check the topic checkboxes based on loaded topics
+      document.querySelectorAll('.trending-topic-cb').forEach(cb => {
+        cb.checked = allTopicsSet.has(cb.value);
+      });
+      
+      // Add any custom topics from loaded topics that aren't default
+      const defaultTopics = Array.from(document.querySelectorAll('#trendingTopics input[type="checkbox"]:not([id^="custom_"])')).map(cb => cb.value);
+      allTopicsSet.forEach(topic => {
+        if (!defaultTopics.includes(topic) && !document.querySelector(`#trendingTopics input[value="${topic}"]`)) {
+          const id = 'custom_loaded_' + topic.replace(/[^a-zA-Z0-9]/g, '') + Math.random().toString(36).substring(2, 5);
+          const label = document.createElement('label');
+          label.className = 'flex items-center space-x-2 bg-gray-700 px-3 py-1 rounded cursor-pointer';
+          label.innerHTML = `<input type="checkbox" id="${id}" value="${topic}" class="form-checkbox trending-topic-cb" checked><span>${topic}</span>`;
+          trendingTopicsDiv.appendChild(label);
+        }
+      });
+    }
+
+    saveSettingsButton.addEventListener('click', async () => {
+      const selectedTopics = Array.from(document.querySelectorAll('.trending-topic-cb:checked')).map(cb => cb.value);
+      const emailVal = emailInput.value.trim(); // Get email value
+
+      // Basic email validation (optional, can be more comprehensive)
+      if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+        showToast('Please enter a valid email address or leave it blank.', 'warning');
+        return;
+      }
+      
+      // Simplified validation: prompt if both email is blank and no topics selected
+      if (!emailVal && selectedTopics.length === 0) {
+        showToast('Please enter an email or select topics to save.', 'info');
+        return;
+      }
+
+      const settingsPayload = {
+        email: emailVal,
+        topics: selectedTopics
+      };
+
+      try {
+        const response = await fetch('/save-schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settingsPayload)
+        });
+        const data = await response.json();
+        if (data.success) {
+          showToast(data.message || 'Settings saved successfully!', 'success');
+        } else {
+          showToast(data.message || 'Failed to save settings.', 'error');
+        }
+      } catch (error) {
+        console.error('Error saving settings:', error);
+        showToast('An error occurred while saving settings.', 'error');
+      }
+    });
+  </script>
+</body>
+</html>
