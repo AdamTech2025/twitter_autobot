@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/cron.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/init-db.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/init-db",
+      "dest": "api/init-db.py"
+    },
+    {
+      "src": "/api/cron/(.*)",
+      "dest": "api/cron.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/content-generation",
+      "schedule": "30 12 * * *"
+    }
+  ],
+  "env": {
+    "FLASK_ENV": "production"
+  },
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30
+    },
+    "api/cron.py": {
+      "maxDuration": 60
+    },
+    "api/init-db.py": {
+      "maxDuration": 30
+    }
+  }
+} 

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Tweet Was Posted!</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background-color: #10b981;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .content {
+            padding: 30px;
+            line-height: 1.6;
+        }
+        .tweet-preview {
+            background-color: #f8f9fa;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            margin: 20px 0;
+            font-style: italic;
+            border-radius: 4px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #3b82f6;
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-weight: 500;
+            margin: 20px 0;
+        }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎉 Tweet Posted Successfully!</h1>
+        </div>
+        
+        <div class="content">
+            <p>Hello <strong>@{{ screen_name }}</strong>,</p>
+            
+            <p>Great news! Your AI-generated content has been successfully posted to your Twitter account:</p>
+            
+            <div class="tweet-preview">
+                "{{ tweet_content }}"
+            </div>
+            
+            <p>You can view it on your Twitter profile or check your dashboard for more details.</p>
+            
+            <div style="text-align: center;">
+                <a href="{{ dashboard_url }}" class="button">Go to Dashboard</a>
+            </div>
+            
+            <p>Thank you for using our AI Tweet Generator!</p>
+            
+            <p>Best regards,<br>
+            <strong>The AI Tweet Generator Team</strong></p>
+        </div>
+        
+        <div class="footer">
+            <p>&copy; {{ current_year }} AI Tweet Generator. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html> 

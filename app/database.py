@@ -3,119 +3,228 @@ import os
 import logging
 from datetime import datetime
 
-DATABASE_PATH = os.path.join(os.path.dirname(__file__), '..', 'twitter_bot.db')
+# Database configuration for both development and production
+if os.environ.get('VERCEL_ENV'):
+    # Production environment - use PostgreSQL
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    
+    # Vercel Postgres connection
+    DATABASE_URL = os.environ.get('POSTGRES_URL')
+    if not DATABASE_URL:
+        raise ValueError("POSTGRES_URL environment variable is required in production")
+    
+    logger = logging.getLogger(__name__)
+    logger.info("Using PostgreSQL database in production")
+else:
+    # Development environment - use SQLite
+    DATABASE_PATH = os.path.join(os.path.dirname(__file__), '..', 'twitter_bot.db')
+    logger = logging.getLogger(__name__)
+    logger.info("Using SQLite database in development")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def get_db_connection():
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get database connection - PostgreSQL in production, SQLite in development"""
+    if os.environ.get('VERCEL_ENV'):
+        # PostgreSQL connection for production
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        return conn
+    else:
+        # SQLite connection for development
+        conn = sqlite3.connect(DATABASE_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 def init_db():
-    logger.info(f"Initializing database with new schema (no schedule_times) at {DATABASE_PATH}")
-    if not os.path.exists(os.path.dirname(DATABASE_PATH)):
-        os.makedirs(os.path.dirname(DATABASE_PATH))
-        logger.info(f"Created directory {os.path.dirname(DATABASE_PATH)}")
+    """Initialize database with proper schema for both PostgreSQL and SQLite"""
+    if os.environ.get('VERCEL_ENV'):
+        logger.info("Initializing PostgreSQL database for production")
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # PostgreSQL schema
+        cursor.execute("DROP TABLE IF EXISTS ai_generated_content_history CASCADE;")
+        cursor.execute("DROP TABLE IF EXISTS users CASCADE;")
+        logger.info("Dropped existing tables (PostgreSQL).")
         
-    conn = get_db_connection()
-    cursor = conn.cursor()
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            twitter_id VARCHAR(50) UNIQUE NOT NULL,
+            screen_name VARCHAR(100) NOT NULL,
+            oauth_token TEXT NOT NULL,
+            oauth_token_secret TEXT NOT NULL,
+            email VARCHAR(255),
+            topics TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        logger.info("Created users table (PostgreSQL).")
 
-    cursor.execute("DROP TABLE IF EXISTS tweet_history;") # Old, potentially, ensure clean up
-    cursor.execute("DROP TABLE IF EXISTS ai_generated_content_history;")
-    cursor.execute("DROP TABLE IF EXISTS users;") 
-    logger.info("Dropped existing tables (users, ai_generated_content_history, tweet_history).")
-    
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        twitter_id TEXT UNIQUE NOT NULL,
-        screen_name TEXT NOT NULL,
-        oauth_token TEXT NOT NULL,
-        oauth_token_secret TEXT NOT NULL,
-        email TEXT,
-        topics TEXT, -- JSON string for topics
-        -- schedule_times TEXT, -- REMOVED
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-    """)
-    logger.info("Created users table (without schedule_times).")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ai_generated_content_history (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            generated_content TEXT NOT NULL,
+            status VARCHAR(50) NOT NULL,
+            confirmation_token VARCHAR(100) UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            posted_at TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        );
+        """)
+        logger.info("Created ai_generated_content_history table (PostgreSQL).")
+        
+        # PostgreSQL trigger for updated_at
+        cursor.execute("""
+        CREATE OR REPLACE FUNCTION update_updated_at_column()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = CURRENT_TIMESTAMP;
+            RETURN NEW;
+        END;
+        $$ language 'plpgsql';
+        """)
+        
+        cursor.execute("""
+        DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+        CREATE TRIGGER update_users_updated_at
+            BEFORE UPDATE ON users
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column();
+        """)
+        logger.info("Created update_users_updated_at trigger (PostgreSQL).")
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS ai_generated_content_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        generated_content TEXT NOT NULL,
-        status TEXT NOT NULL,
-        confirmation_token TEXT UNIQUE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        posted_at DATETIME,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-    );
-    """)
-    logger.info("Created ai_generated_content_history table.")
-    
-    cursor.execute("""
-    CREATE TRIGGER IF NOT EXISTS update_users_updated_at
-    AFTER UPDATE ON users
-    FOR EACH ROW
-    BEGIN
-        UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
-    END;
-    """)
-    logger.info("Created update_users_updated_at trigger.")
+        conn.commit()
+        conn.close()
+        logger.info("PostgreSQL database initialization complete.")
+    else:
+        # SQLite initialization (existing code)
+        logger.info(f"Initializing SQLite database at {DATABASE_PATH}")
+        if not os.path.exists(os.path.dirname(DATABASE_PATH)):
+            os.makedirs(os.path.dirname(DATABASE_PATH))
+            logger.info(f"Created directory {os.path.dirname(DATABASE_PATH)}")
+            
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-    conn.commit()
-    conn.close()
-    logger.info("Database initialization (no schedule_times) complete.")
+        cursor.execute("DROP TABLE IF EXISTS tweet_history;")
+        cursor.execute("DROP TABLE IF EXISTS ai_generated_content_history;")
+        cursor.execute("DROP TABLE IF EXISTS users;") 
+        logger.info("Dropped existing tables (SQLite).")
+        
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            twitter_id TEXT UNIQUE NOT NULL,
+            screen_name TEXT NOT NULL,
+            oauth_token TEXT NOT NULL,
+            oauth_token_secret TEXT NOT NULL,
+            email TEXT,
+            topics TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        logger.info("Created users table (SQLite).")
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ai_generated_content_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            generated_content TEXT NOT NULL,
+            status TEXT NOT NULL,
+            confirmation_token TEXT UNIQUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            posted_at DATETIME,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        );
+        """)
+        logger.info("Created ai_generated_content_history table (SQLite).")
+        
+        cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS update_users_updated_at
+        AFTER UPDATE ON users
+        FOR EACH ROW
+        BEGIN
+            UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+        END;
+        """)
+        logger.info("Created update_users_updated_at trigger (SQLite).")
+
+        conn.commit()
+        conn.close()
+        logger.info("SQLite database initialization complete.")
 
 # --- User Functions ---
 def create_or_update_user(twitter_id, screen_name, oauth_token, oauth_token_secret, email=None, topics=None):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT id, topics FROM users WHERE twitter_id = ?", (twitter_id,))
+        # Use appropriate parameter placeholder for database type
+        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        
+        cursor.execute(f"SELECT id, topics FROM users WHERE twitter_id = {param_placeholder}", (twitter_id,))
         user_row = cursor.fetchone()
 
-        # Preserve existing topics if not explicitly passed during an update for a new login
-        # Topics are now managed via save_schedule_route primarily
         final_topics = topics
 
         if user_row:
             user_id = user_row['id']
             logger.info(f"Updating existing user for twitter_id {twitter_id} (Internal ID: {user_id}).")
-            if topics is None: # If topics not provided during this call, keep existing ones
+            if topics is None:
                 final_topics = user_row['topics'] 
 
-            update_fields = {
-                'screen_name': screen_name,
-                'oauth_token': oauth_token,
-                'oauth_token_secret': oauth_token_secret,
-                'is_active': True,
-                'updated_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            if email is not None: update_fields['email'] = email
-            if final_topics is not None: update_fields['topics'] = final_topics
-            
-            set_clause = ", ".join([f"{key} = ?" for key in update_fields.keys()])
-            values = list(update_fields.values()) + [user_id]
-            
-            cursor.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
+            if os.environ.get('VERCEL_ENV'):
+                # PostgreSQL update
+                cursor.execute("""
+                    UPDATE users 
+                    SET screen_name = %s, oauth_token = %s, oauth_token_secret = %s, 
+                        email = %s, topics = %s, is_active = TRUE, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                """, (screen_name, oauth_token, oauth_token_secret, email, final_topics, user_id))
+            else:
+                # SQLite update
+                update_fields = {
+                    'screen_name': screen_name,
+                    'oauth_token': oauth_token,
+                    'oauth_token_secret': oauth_token_secret,
+                    'is_active': True,
+                    'updated_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                if email is not None: update_fields['email'] = email
+                if final_topics is not None: update_fields['topics'] = final_topics
+                
+                set_clause = ", ".join([f"{key} = ?" for key in update_fields.keys()])
+                values = list(update_fields.values()) + [user_id]
+                
+                cursor.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
         else:
             logger.info(f"Creating new user for twitter_id {twitter_id}. Topics: {final_topics}")
-            cursor.execute("""
-                INSERT INTO users (twitter_id, screen_name, oauth_token, oauth_token_secret, email, topics, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, TRUE)
-            """, (twitter_id, screen_name, oauth_token, oauth_token_secret, email, final_topics))
-            user_id = cursor.lastrowid
+            if os.environ.get('VERCEL_ENV'):
+                # PostgreSQL insert
+                cursor.execute("""
+                    INSERT INTO users (twitter_id, screen_name, oauth_token, oauth_token_secret, email, topics, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE) RETURNING id
+                """, (twitter_id, screen_name, oauth_token, oauth_token_secret, email, final_topics))
+                user_id = cursor.fetchone()['id']
+            else:
+                # SQLite insert
+                cursor.execute("""
+                    INSERT INTO users (twitter_id, screen_name, oauth_token, oauth_token_secret, email, topics, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, TRUE)
+                """, (twitter_id, screen_name, oauth_token, oauth_token_secret, email, final_topics))
+                user_id = cursor.lastrowid
         
         conn.commit()
         logger.info(f"Successfully created/updated user: Twitter ID {twitter_id}, Internal ID {user_id}")
         return get_user_by_id(user_id)
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in create_or_update_user for twitter_id {twitter_id}: {e}")
         conn.rollback()
         return None
@@ -126,7 +235,8 @@ def get_user_by_id(user_id):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        cursor.execute(f"SELECT * FROM users WHERE id = {param_placeholder}", (user_id,))
         user = cursor.fetchone()
         return dict(user) if user else None
     finally:
@@ -136,7 +246,8 @@ def get_user_by_twitter_id(twitter_id):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE twitter_id = ?", (twitter_id,))
+        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        cursor.execute(f"SELECT * FROM users WHERE twitter_id = {param_placeholder}", (twitter_id,))
         user = cursor.fetchone()
         return dict(user) if user else None
     finally:
@@ -146,13 +257,18 @@ def update_user_email(user_id, email):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # If email is empty string or None, store NULL in database
         email_to_store = email if email and email.strip() else None
-        cursor.execute("UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (email_to_store, user_id))
+        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        
+        if os.environ.get('VERCEL_ENV'):
+            cursor.execute("UPDATE users SET email = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (email_to_store, user_id))
+        else:
+            cursor.execute("UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (email_to_store, user_id))
+        
         conn.commit()
         logger.info(f"Updated email for user ID {user_id} to '{email_to_store}'")
         return True
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in update_user_email for user ID {user_id}: {e}")
         return False
     finally:
@@ -163,15 +279,15 @@ def update_user_topics(user_id, topics_json):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            UPDATE users 
-            SET topics = ?, updated_at = CURRENT_TIMESTAMP 
-            WHERE id = ?
-        """, (topics_json, user_id))
+        if os.environ.get('VERCEL_ENV'):
+            cursor.execute("UPDATE users SET topics = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (topics_json, user_id))
+        else:
+            cursor.execute("UPDATE users SET topics = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (topics_json, user_id))
+        
         conn.commit()
         logger.info(f"Updated topics for user ID {user_id}.")
         return True
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in update_user_topics for user ID {user_id}: {e}")
         return False
     finally:
@@ -181,11 +297,15 @@ def set_user_active_status(user_id, is_active):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (is_active, user_id))
+        if os.environ.get('VERCEL_ENV'):
+            cursor.execute("UPDATE users SET is_active = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (is_active, user_id))
+        else:
+            cursor.execute("UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (is_active, user_id))
+        
         conn.commit()
         logger.info(f"Set active status for user ID {user_id} to {is_active}")
         return True
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in set_user_active_status for user ID {user_id}: {e}")
         return False
     finally:
@@ -196,8 +316,6 @@ def get_active_users_with_topics():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Now only checks for active status and if topics are set (not empty or null)
-        # Assumes topics are stored as JSON array, so '[]' means no topics.
         cursor.execute("""
             SELECT * FROM users 
             WHERE is_active = TRUE AND topics IS NOT NULL AND topics != '' AND topics != '[]'
@@ -205,7 +323,7 @@ def get_active_users_with_topics():
         users = [dict(row) for row in cursor.fetchall()]
         logger.info(f"Found {len(users)} active users with topics.")
         return users
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in get_active_users_with_topics: {e}")
         return []
     finally:
@@ -219,15 +337,25 @@ def add_generated_content(user_id, generated_content, status, confirmation_token
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            INSERT INTO ai_generated_content_history (user_id, generated_content, status, confirmation_token)
-            VALUES (?, ?, ?, ?)
-        """, (user_id, generated_content, status, confirmation_token))
+        if os.environ.get('VERCEL_ENV'):
+            # PostgreSQL
+            cursor.execute("""
+                INSERT INTO ai_generated_content_history (user_id, generated_content, status, confirmation_token)
+                VALUES (%s, %s, %s, %s) RETURNING id
+            """, (user_id, generated_content, status, confirmation_token))
+            content_id = cursor.fetchone()['id']
+        else:
+            # SQLite
+            cursor.execute("""
+                INSERT INTO ai_generated_content_history (user_id, generated_content, status, confirmation_token)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, generated_content, status, confirmation_token))
+            content_id = cursor.lastrowid
+        
         conn.commit()
-        content_id = cursor.lastrowid
         logger.info(f"Added generated content to history for user ID {user_id}. Content ID: {content_id}, Status: {status}")
         return content_id
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in add_generated_content for user ID {user_id}: {e}")
         return None
     finally:
@@ -237,16 +365,17 @@ def get_history_by_user_id(user_id, limit=20):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
+        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        cursor.execute(f"""
             SELECT h.*, u.screen_name FROM ai_generated_content_history h
             JOIN users u ON h.user_id = u.id
-            WHERE h.user_id = ? 
+            WHERE h.user_id = {param_placeholder}
             ORDER BY h.created_at DESC 
-            LIMIT ?
+            LIMIT {param_placeholder}
         """, (user_id, limit))
         history = [dict(row) for row in cursor.fetchall()]
         return history
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in get_history_by_user_id for user_id {user_id}: {e}")
         return []
     finally:
@@ -256,15 +385,16 @@ def get_content_by_confirmation_token(confirmation_token):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
+        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        cursor.execute(f"""
             SELECT h.*, u.screen_name, u.oauth_token, u.oauth_token_secret, u.email as user_email, u.is_active as user_is_active
             FROM ai_generated_content_history h
             JOIN users u ON h.user_id = u.id
-            WHERE h.confirmation_token = ?
+            WHERE h.confirmation_token = {param_placeholder}
         """, (confirmation_token,))
         content = cursor.fetchone()
         return dict(content) if content else None
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in get_content_by_confirmation_token for token {confirmation_token}: {e}")
         return None
     finally:
@@ -274,14 +404,23 @@ def update_content_status(content_id, status, posted_at=None):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        if posted_at:
-            cursor.execute("UPDATE ai_generated_content_history SET status = ?, posted_at = ? WHERE id = ?", (status, posted_at, content_id))
+        if os.environ.get('VERCEL_ENV'):
+            # PostgreSQL
+            if posted_at:
+                cursor.execute("UPDATE ai_generated_content_history SET status = %s, posted_at = %s WHERE id = %s", (status, posted_at, content_id))
+            else:
+                cursor.execute("UPDATE ai_generated_content_history SET status = %s WHERE id = %s", (status, content_id))
         else:
-            cursor.execute("UPDATE ai_generated_content_history SET status = ? WHERE id = ?", (status, content_id))
+            # SQLite
+            if posted_at:
+                cursor.execute("UPDATE ai_generated_content_history SET status = ?, posted_at = ? WHERE id = ?", (status, posted_at, content_id))
+            else:
+                cursor.execute("UPDATE ai_generated_content_history SET status = ? WHERE id = ?", (status, content_id))
+        
         conn.commit()
         logger.info(f"Updated status for content ID {content_id} to {status}")
         return True
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error in update_content_status for content ID {content_id}: {e}")
         return False
     finally:

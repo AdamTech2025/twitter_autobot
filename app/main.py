@@ -3,6 +3,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 import json
+import re
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 # We will not use flask_dance for Twitter OAuth anymore
@@ -10,9 +11,21 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from apscheduler.schedulers.background import BackgroundScheduler # Keep for later
 from dotenv import load_dotenv
 
+# Configure logging first, before using logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 # Load environment variables from the root directory
-dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
-load_dotenv(dotenv_path=dotenv_path)
+# In production (Vercel), environment variables are injected directly
+# In development, load from .env file
+if os.environ.get('VERCEL_ENV'):
+    # Production environment - variables are already loaded
+    logger.info("Running in Vercel production environment")
+else:
+    # Development environment - load from .env file
+    dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+    load_dotenv(dotenv_path=dotenv_path, override=True)  # Force override system env vars
+    logger.info("Running in development environment, loaded .env file")
 
 # Local imports
 try:
@@ -28,18 +41,27 @@ except ImportError as e:
     from .services import twitter_service, email_service
     from .crew import crew
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
 # Initialize Flask app
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "supersecretkey_fixed_schedule")
 
 # Configuration for url_for with _external=True outside of request context
-app.config['SERVER_NAME'] = os.environ.get('FLASK_SERVER_NAME', 'localhost:5001')
+# Handle both development and production environments
+if os.environ.get('VERCEL_ENV'):
+    # Production on Vercel
+    vercel_url = os.environ.get('VERCEL_URL') or os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')
+    if vercel_url:
+        app.config['SERVER_NAME'] = vercel_url
+        app.config['PREFERRED_URL_SCHEME'] = 'https'
+    else:
+        # Fallback - don't set SERVER_NAME, let Flask handle it dynamically
+        app.config['PREFERRED_URL_SCHEME'] = 'https'
+else:
+    # Development environment
+    app.config['SERVER_NAME'] = os.environ.get('FLASK_SERVER_NAME', 'localhost:5001')
+    app.config['PREFERRED_URL_SCHEME'] = os.environ.get('FLASK_PREFERRED_URL_SCHEME', 'http')
+
 app.config['APPLICATION_ROOT'] = os.environ.get('FLASK_APPLICATION_ROOT', '/')
-app.config['PREFERRED_URL_SCHEME'] = os.environ.get('FLASK_PREFERRED_URL_SCHEME', 'http')
 
 # Ensure TWITTER_CALLBACK_URL is set in your .env or environment
 # Example: TWITTER_CALLBACK_URL=http://localhost:5001/twitter/callback
@@ -47,7 +69,6 @@ TWITTER_CALLBACK_URL = os.environ.get("TWITTER_CALLBACK_URL")
 if not TWITTER_CALLBACK_URL:
     logger.warning("TWITTER_CALLBACK_URL not set in environment. OAuth callback might fail.")
     # Fallback for local development, ensure your Twitter app callback is set to this
-    TWITTER_CALLBACK_URL = "http://localhost:5001/twitter/callback" 
 
 # db.init_db() # Commented out to prevent DB wipe on each restart. Run app/database.py manually if reset is needed.
 scheduler = BackgroundScheduler()
@@ -154,128 +175,116 @@ def index():
 
 @app.route('/login/twitter')
 def twitter_login():
-    """
-    Step 1 of OAuth 1.0a: Get a request token and redirect user to Twitter for authorization.
-    """
+    """Initiate Twitter OAuth login"""
     logger.info("Initiating Twitter login.")
+    
     if not TWITTER_CALLBACK_URL:
-        flash("Application callback URL is not configured. Cannot initiate Twitter login.", "error")
+        flash("Twitter login is not properly configured.", "error")
         return redirect(url_for('index'))
 
     try:
-        # This function in twitter_service should handle getting the request token
-        # and constructing the authorization URL.
-        # It should return (request_token, request_token_secret, authorization_url)
-        # or raise an exception.
-        request_token_data = twitter_service.get_request_token_and_auth_url(TWITTER_CALLBACK_URL)
+        result = twitter_service.get_request_token_and_auth_url(TWITTER_CALLBACK_URL)
+        logger.info(f"Twitter service result: {result}")  # Debug logging
         
-        if not request_token_data or 'authorization_url' not in request_token_data:
-            logger.error("Failed to get request token or authorization URL from twitter_service.")
-            flash("Could not initiate Twitter login. Please try again later.", "error")
+        if not result:
+            flash("Could not connect to Twitter. Please try again later.", "error")
             return redirect(url_for('index'))
-
-        # Store the request token and secret in session to verify in callback
-        session['oauth_request_token'] = request_token_data['oauth_token']
-        session['oauth_request_token_secret'] = request_token_data['oauth_token_secret']
         
-        logger.info(f"Redirecting user to Twitter authorization URL: {request_token_data['authorization_url']}")
-        return redirect(request_token_data['authorization_url'])
+        # Handle error responses
+        if 'error' in result:
+            logger.info(f"Twitter error detected: {result['error']}")  # Debug logging
+            error_messages = {
+                'service_unavailable': "Twitter is temporarily unavailable. Please try again in a few minutes.",
+                'auth_failed': "Twitter authentication failed. Please contact support.",
+                'rate_limit': "Too many login attempts. Please wait before trying again.",
+                'config': "Twitter login is not properly configured."
+            }
+            message = error_messages.get(result['error'], result.get('message', 'Unknown error'))
+            logger.info(f"Flashing message: {message}")  # Debug logging
+            flash(message, 'warning' if result['error'] in ['service_unavailable', 'rate_limit'] else 'error')
+            return redirect(url_for('index'))
+        
+        # Success - store tokens and redirect
+        if 'authorization_url' in result:
+            session['oauth_request_token'] = result['oauth_token']
+            session['oauth_request_token_secret'] = result['oauth_token_secret']
+            logger.info("Redirecting to Twitter for authorization")
+            return redirect(result['authorization_url'])
+        
+        flash("Could not initiate Twitter login. Please try again.", "error")
+        return redirect(url_for('index'))
 
     except Exception as e:
-        logger.error(f"Error during Twitter login initiation: {e}", exc_info=True)
-        flash(f"An error occurred while trying to connect to Twitter: {str(e)}", "error")
+        logger.error(f"Error during Twitter login: {e}", exc_info=True)
+        flash("An unexpected error occurred. Please try again.", "error")
         return redirect(url_for('index'))
 
 @app.route('/twitter/callback')
 def twitter_callback():
-    """
-    Step 2 of OAuth 1.0a: Handle callback from Twitter, exchange request token for access token,
-    fetch user profile, and save to DB.
-    """
-    logger.info("Received callback from Twitter.")
+    """Handle Twitter OAuth callback"""
+    logger.info("Processing Twitter callback")
+    
+    # Check for user denial
+    if request.args.get('denied'):
+        flash("Twitter authorization was cancelled.", "info")
+        return redirect(url_for('index'))
+
     oauth_verifier = request.args.get('oauth_verifier')
-    denied = request.args.get('denied')
-
-    if denied:
-        logger.warning(f"User denied Twitter authorization. Token: {denied}")
-        flash("You denied the Twitter authorization request.", "warning")
-        return redirect(url_for('index'))
-
     if not oauth_verifier:
-        logger.error("OAuth verifier not found in Twitter callback.")
-        flash("Failed to get authorization from Twitter. Verifier missing.", "error")
+        flash("Invalid Twitter callback. Please try again.", "error")
         return redirect(url_for('index'))
 
-    # Retrieve request token from session
+    # Get stored tokens from session
     request_token = session.pop('oauth_request_token', None)
     request_token_secret = session.pop('oauth_request_token_secret', None)
 
     if not request_token or not request_token_secret:
-        logger.error("Request token not found in session during callback. Session might have expired.")
-        flash("Your session expired or request token was missing. Please try logging in again.", "error")
-        return redirect(url_for('twitter_login')) # Redirect to login again
+        flash("Session expired. Please try connecting again.", "warning")
+        return redirect(url_for('twitter_login'))
 
     try:
-        # This function in twitter_service should exchange request token + verifier for access token
-        # It should return {'oauth_token': ..., 'oauth_token_secret': ..., 'user_id': ..., 'screen_name': ...}
-        # Some OAuth libraries might give user_id and screen_name directly with access token, others require a separate call.
-        # For simplicity, let's assume get_access_token might also fetch basic user identifiers if common.
+        # Exchange request token for access token
         access_token_data = twitter_service.get_access_token(
-            request_token,
-            request_token_secret,
-            oauth_verifier
+            request_token, request_token_secret, oauth_verifier
         )
 
         if not access_token_data or 'oauth_token' not in access_token_data:
-            logger.error(f"Failed to get access token from Twitter: {access_token_data}")
-            flash("Could not authenticate with Twitter. Please try again.", "error")
+            flash("Failed to authenticate with Twitter. Please try again.", "error")
             return redirect(url_for('index'))
 
-        oauth_token = access_token_data['oauth_token']
-        oauth_token_secret = access_token_data['oauth_token_secret']
-        
-        # Fetch user profile information using the access token
-        # This function in twitter_service uses the access token to get user details
-        # It should return {'id_str': ..., 'screen_name': ...} or similar
-        user_profile = twitter_service.get_me(oauth_token, oauth_token_secret)
+        # Get user profile
+        user_profile = twitter_service.get_me(
+            access_token_data['oauth_token'], 
+            access_token_data['oauth_token_secret']
+        )
 
-        if not user_profile or 'id_str' not in user_profile or 'screen_name' not in user_profile:
-            logger.error(f"Failed to fetch user profile from Twitter: {user_profile}")
-            flash("Connected to Twitter, but could not fetch your profile information.", "error")
+        if not user_profile or 'id_str' not in user_profile:
+            flash("Could not fetch your Twitter profile. Please try again.", "error")
             return redirect(url_for('index'))
 
-        twitter_user_id_str = user_profile['id_str']
-        screen_name_str = user_profile['screen_name']
-        logger.info(f"Successfully fetched Twitter info: ID {twitter_user_id_str}, Username {screen_name_str}")
-        
-        # At this point, we have user's Twitter ID, screen name, and OAuth tokens.
-        # We need to save or update this in our database.
-        # The 'email' is not part of standard Twitter OAuth data.
-        # We can retrieve pending email if we implement that flow separately.
-        pending_email = session.pop('pending_email', None) 
-        
+        # Save user to database
+        pending_email = session.pop('pending_email', None)
         user_record = db.create_or_update_user(
-            twitter_id=twitter_user_id_str,
-            screen_name=screen_name_str,
-            oauth_token=oauth_token,
-            oauth_token_secret=oauth_token_secret,
+            twitter_id=user_profile['id_str'],
+            screen_name=user_profile['screen_name'],
+            oauth_token=access_token_data['oauth_token'],
+            oauth_token_secret=access_token_data['oauth_token_secret'],
             email=pending_email,
-            topics=None # Topics are not set at login, existing ones are preserved by db func
+            topics=None
         )
 
         if user_record and user_record.get('id'):
-            session["user_db_id"] = user_record['id'] # Store internal DB ID in session
-            logger.info(f"User @{screen_name_str} (Internal ID: {user_record['id']}) connected and session created.")
-            flash(f"Successfully connected Twitter account: @{screen_name_str}", "success")
+            session["user_db_id"] = user_record['id']
+            logger.info(f"User @{user_profile['screen_name']} connected successfully")
+            flash(f"Successfully connected Twitter account: @{user_profile['screen_name']}", "success")
         else:
-            logger.error("Failed to save user/Twitter connection to database.")
-            flash("Could not save your user profile after Twitter connection. Please try again.", "error")
-            
+            flash("Could not save your profile. Please try again.", "error")
+
         return redirect(url_for('index'))
 
     except Exception as e:
-        logger.error(f"Error during Twitter callback processing: {e}", exc_info=True)
-        flash(f"An error occurred after Twitter authorization: {str(e)}", "error")
+        logger.error(f"Error processing Twitter callback: {e}", exc_info=True)
+        flash("An error occurred during Twitter authentication.", "error")
         return redirect(url_for('index'))
 
 @app.route('/disconnect-twitter')
@@ -299,57 +308,55 @@ def disconnect_twitter_route():
     return redirect(url_for('index'))
 
 @app.route('/save-schedule', methods=['POST'])
-def save_settings_route(): # Renamed for clarity
-    logger.info("Received request to /save-settings (formerly /save-schedule)")
+def save_settings_route():
+    """Save user email and topic preferences"""
+    logger.info("Saving user settings")
     user = get_current_user_from_session()
-    response_messages = []
-    overall_success = True
 
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"success": False, "message": "Invalid request: No data."}), 400
+            return jsonify({"success": False, "message": "No data provided"}), 400
             
-        email_to_save = data.get('email')
-        topics_list = data.get('topics', []) # User-selected topics
+        email = data.get('email', '').strip()
+        topics = data.get('topics', [])
         
-        logger.info(f"/save-settings: Data - Email: '{email_to_save}', Topics: {topics_list}")
+        # Basic email validation
+        if email and not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+            return jsonify({"success": False, "message": "Please enter a valid email address"}), 400
 
-        if email_to_save is not None: # Allow empty string to clear email
+        messages = []
+        
+        # Handle email
+        if email or email == '':  # Allow clearing email with empty string
             if user:
-                if db.update_user_email(user['id'], email_to_save if email_to_save.strip() else None):
-                    response_messages.append("Email updated.")
+                if db.update_user_email(user['id'], email or None):
+                    messages.append("Email updated")
                 else:
-                    response_messages.append("Failed to update email.")
-                    overall_success = False
+                    return jsonify({"success": False, "message": "Failed to update email"}), 500
             else:
-                session['pending_email'] = email_to_save
-                response_messages.append("Email will be associated upon Twitter connection.")
+                session['pending_email'] = email
+                messages.append("Email will be saved when you connect Twitter")
         
-        if user: # Topics can only be saved for a logged-in user
-            if 'topics' in data: # Check if topics key was sent, even if empty list
-                topics_json_str = json.dumps(topics_list)
-                if db.update_user_topics(user['id'], topics_json_str):
-                    response_messages.append("Topics updated.")
+        # Handle topics
+        if topics is not None:  # Allow empty list to clear topics
+            if user:
+                topics_json = json.dumps(topics)
+                if db.update_user_topics(user['id'], topics_json):
+                    messages.append("Topics updated")
                 else:
-                    response_messages.append("Failed to update topics.")
-                    overall_success = False
-        elif topics_list: # Topics provided but no user logged in
-            response_messages.append("Please connect Twitter to save topics.")
-            # overall_success = False # Don't mark as failure if email was pending successfully
+                    return jsonify({"success": False, "message": "Failed to update topics"}), 500
+            elif topics:  # Only warn if topics were provided but user not logged in
+                messages.append("Connect Twitter to save topics")
 
-        if not response_messages:
-            response_messages.append("No changes were submitted.")
-            flash(" ".join(response_messages), "info")
-            return jsonify({"success": True, "message": " ".join(response_messages)})
-
-        final_message = " ".join(response_messages)
-        flash(final_message, "success" if overall_success else "error")
-        return jsonify({"success": overall_success, "message": final_message}), 200 if overall_success else 400
+        if not messages:
+            messages.append("No changes made")
+            
+        return jsonify({"success": True, "message": ". ".join(messages)})
             
     except Exception as e:
         logger.error(f"Error saving settings: {e}", exc_info=True)
-        return jsonify({"success": False, "message": f"Server error: {e}"}), 500
+        return jsonify({"success": False, "message": "Server error occurred"}), 500
 
 @app.route('/confirm-tweet/<token>')
 def confirm_content_route(token):
@@ -382,55 +389,21 @@ def confirm_content_route(token):
             if content_record.get('user_email'):
                 dashboard_url = url_for('index', _external=True)
                 current_year = datetime.now(timezone.utc).year
-                body_html_posted = f'''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your Content Has Been Posted!</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }}
-        .container {{ max-width: 600px; margin: 20px auto; padding: 20px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }}
-        .header {{ background-color: #28a745; color: #ffffff; padding: 10px 20px; text-align: center; border-top-left-radius: 8px; border-top-right-radius: 8px; }}
-        .header h1 {{ margin: 0; font-size: 24px; }}
-        .content {{ padding: 20px; color: #333333; line-height: 1.6; }}
-        .content p {{ margin: 10px 0; }}
-        .tweet-posted {{ background-color: #e9ecef; padding: 15px; border-radius: 5px; margin: 15px 0; font-style: italic; }}
-        .button-container {{ text-align: center; margin: 20px 0; }}
-        .button {{ background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-size: 16px; display: inline-block; }}
-        .footer {{ text-align: center; padding: 10px; font-size: 12px; color: #777777; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Content Successfully Posted!</h1>
-        </div>
-        <div class="content">
-            <p>Hello {content_record['screen_name']},</p>
-            <p>Great news! Your AI-generated content has been successfully posted to your Twitter account:</p>
-            <div class="tweet-posted">
-                <p>"{content_record['generated_content']}"</p>
-            </div>
-            <p>You can view it on your profile or visit your dashboard for more options.</p>
-            <div class="button-container">
-                <a href="{dashboard_url}" class="button">Go to Dashboard</a>
-            </div>
-            <p>Thanks for using our service,<br>The AutoTweet Bot Team</p>
-        </div>
-        <div class="footer">
-            <p>&copy; {current_year} AutoTweet Bot. All rights reserved.</p>
-        </div>
-    </div>
-</body>
-</html>
-'''
+                
+                # Use email template instead of inline HTML
+                email_html = render_template('email_posted.html',
+                    screen_name=content_record['screen_name'],
+                    tweet_content=content_record['generated_content'],
+                    dashboard_url=dashboard_url,
+                    current_year=current_year
+                )
+                
                 email_service.send_email(
                     recipient_email=content_record['user_email'],
-                    subject="Your AI Content Has Been Posted!",
-                    body_html=body_html_posted
+                    subject="Your AI Tweet Has Been Posted! 🎉",
+                    body_html=email_html
                 )
+                logger.info(f"Successfully sent posted notification to {content_record['user_email']}")
         else:
             db.update_content_status(content_record['id'], 'failed_to_post')
             error_msg_str = str(post_data) # post_data is the error message from twitter_service
@@ -504,52 +477,21 @@ def scheduled_content_generation_job():
                         confirm_url = url_for('confirm_content_route', token=confirmation_token, _external=True)
                         topics_str = ', '.join(topics_list) if topics_list else "your selected preferences"
                         current_year = datetime.now(timezone.utc).year
-                        email_body_confirmation = f'''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Confirm Your AI-Generated Content</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }}
-        .container {{ max-width: 600px; margin: 20px auto; padding: 20px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }}
-        .header {{ background-color: #007bff; color: #ffffff; padding: 10px 20px; text-align: center; border-top-left-radius: 8px; border-top-right-radius: 8px; }}
-        .header h1 {{ margin: 0; font-size: 24px; }}
-        .content {{ padding: 20px; color: #333333; line-height: 1.6; }}
-        .content p {{ margin: 10px 0; }}
-        .tweet-preview {{ background-color: #e9ecef; padding: 15px; border-radius: 5px; margin: 15px 0; font-style: italic; }}
-        .button-container {{ text-align: center; margin: 20px 0; }}
-        .button {{ background-color: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-size: 16px; display: inline-block; }}
-        .footer {{ text-align: center; padding: 10px; font-size: 12px; color: #777777; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Your AI Content is Ready!</h1>
-        </div>
-        <div class="content">
-            <p>Hello {user['screen_name']},</p>
-            <p>We've generated new content for you based on your selected topics ({topics_str}). Please review it below:</p>
-            <div class="tweet-preview">
-                <p>"{generated_text_to_confirm}"</p>
-            </div>
-            <p>If you're happy with it, please click the button below to post it to your Twitter profile.</p>
-            <div class="button-container">
-                <a href="{confirm_url}" class="button">Confirm and Post to Twitter</a>
-            </div>
-            <p>If you don't want to post this, you can simply ignore this email.</p>
-            <p>Thanks,<br>The AutoTweet Bot Team</p>
-        </div>
-        <div class="footer">
-            <p>&copy; {current_year} AutoTweet Bot. All rights reserved.</p>
-        </div>
-    </div>
-</body>
-</html>
-'''
-                        email_service.send_email(user['email'], "Confirm Your AI Generated Content", email_body_confirmation)
+                        
+                        # Use email template instead of inline HTML
+                        email_html = render_template('email_confirmation.html',
+                            screen_name=user['screen_name'],
+                            generated_content=generated_text_to_confirm,
+                            topics_used=topics_str,
+                            confirm_url=confirm_url,
+                            current_year=current_year
+                        )
+                        
+                        email_service.send_email(
+                            recipient_email=user['email'], 
+                            subject="🤖 Your AI Content is Ready for Review!",
+                            body_html=email_html
+                        )
                         logger.info(f"SCHEDULER: Confirmation email sent to {user['email']}.")
                 else: 
                     logger.warning(f"SCHEDULER: Crew execution for @{user['screen_name']} did not yield a usable text output for confirmation. Raw output: {results}")
@@ -557,21 +499,25 @@ def scheduled_content_generation_job():
                 logger.error(f"SCHEDULER: Error processing user @{user.get('screen_name', 'Unknown')} in job: {e}", exc_info=True)
 
 # Configure and start scheduler
-if not scheduler.running:
-    # Fixed schedule: Daily at 11:55 AM server time.
+# Only run scheduler in development - Vercel serverless functions are stateless
+if not os.environ.get('VERCEL_ENV') and not scheduler.running:
+    # Fixed schedule: Daily at 14:00 (2:00 PM) server time for local testing.
     # Ensure server timezone is what you expect (e.g., UTC for cloud deployments)
-    scheduler.add_job(scheduled_content_generation_job, 'cron', hour=16, minute=27, id='content_gen_job_1627pm')
-    logger.info("Scheduled content generation job daily at 16:27 PM (server time).")
+    scheduler.add_job(scheduled_content_generation_job, 'cron', hour=14, minute=0, id='content_gen_job_1400')
+    logger.info("Scheduled content generation job daily at 14:00 (2:00 PM) server time for local testing.")
     
     # You can add more fixed schedules here, e.g.:
-    # scheduler.add_job(scheduled_content_generation_job, 'cron', hour=13, minute=12, id='content_gen_job_1312pm')
-    # logger.info("Also scheduled content generation job daily at 13:12 PM (server time).")
+    # scheduler.add_job(scheduled_content_generation_job, 'cron', hour=13, minute=12, id='content_gen_job_1312')
+    # logger.info("Also scheduled content generation job daily at 13:12 (1:12 PM) server time.")
 
     try:
         scheduler.start()
         logger.info("APScheduler started.")
     except Exception as e:
         logger.error(f"Error starting APScheduler: {e}", exc_info=True)
+else:
+    if os.environ.get('VERCEL_ENV'):
+        logger.info("Scheduler disabled in production (Vercel). Use Vercel Cron Jobs for scheduled tasks.")
 
 if __name__ == '__main__':
     logger.info("Starting Flask app in development mode.")
