@@ -1,5 +1,11 @@
 {
   "version": 2,
+  "builds": [
+    {
+      "src": "api/*.py",
+      "use": "@vercel/python"
+    }
+  ],
   "routes": [
     {
       "src": "/api/init-db",
@@ -23,20 +29,6 @@
   "env": {
     "FLASK_ENV": "production",
     "VERCEL_ENV": "production"
-  },
-  "functions": {
-    "api/index.py": {
-      "runtime": "python3.11",
-      "maxDuration": 30
-    },
-    "api/cron.py": {
-      "runtime": "python3.11",
-      "maxDuration": 300
-    },
-    "api/init-db.py": {
-      "runtime": "python3.11",
-      "maxDuration": 60
-    }
   },
   "regions": ["iad1"]
 } 
