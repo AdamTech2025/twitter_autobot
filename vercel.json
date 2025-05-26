@@ -26,15 +26,15 @@
   },
   "functions": {
     "api/index.py": {
-      "runtime": "@vercel/python",
+      "runtime": "python3.11",
       "maxDuration": 30
     },
     "api/cron.py": {
-      "runtime": "@vercel/python",
+      "runtime": "python3.11",
       "maxDuration": 300
     },
     "api/init-db.py": {
-      "runtime": "@vercel/python",
+      "runtime": "python3.11",
       "maxDuration": 60
     }
   },
