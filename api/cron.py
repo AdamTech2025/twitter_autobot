@@ -13,7 +13,7 @@ import json
 import uuid
 
 # Import the scheduled job function from main
-from app.main import scheduled_content_generation_job, app
+from main import scheduled_content_generation_job, app
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

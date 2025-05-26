@@ -1,0 +1,51 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Local database (SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment files (these should be set in Vercel dashboard)
+.env
+.env.local
+.env.production
+
+# Git
+.git/
+.gitignore
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Documentation
+README.md
+deploy.md
+
+# Test files
+test_*
+*_test.py
+
+# Temporary files
+tmp/
+temp/ 

@@ -31,21 +31,24 @@
   "crons": [
     {
       "path": "/api/cron/content-generation",
-      "schedule": "30 12 * * *"
+      "schedule": "0 14 * * *"
     }
   ],
   "env": {
-    "FLASK_ENV": "production"
+    "FLASK_ENV": "production",
+    "VERCEL_ENV": "production"
   },
   "functions": {
     "api/index.py": {
       "maxDuration": 30
     },
     "api/cron.py": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "api/init-db.py": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
-  }
+  },
+  "regions": ["iad1"],
+  "framework": "flask"
 } 

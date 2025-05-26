@@ -23,26 +23,23 @@ if os.environ.get('VERCEL_ENV'):
     logger.info("Running in Vercel production environment")
 else:
     # Development environment - load from .env file
-    dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+    dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
     load_dotenv(dotenv_path=dotenv_path, override=True)  # Force override system env vars
     logger.info("Running in development environment, loaded .env file")
 
-# Local imports
+# Local imports - all modules are in the root directory
 try:
-    from . import database as db
-    # Assuming twitter_service will provide functions for manual OAuth
-    from .services import twitter_service, email_service 
-    from .crew import crew
+    import database as db
+    import twitter_service
+    import email_service 
+    from crew import crew
+    logger.info("Successfully imported all local modules")
 except ImportError as e:
-    logging.error(f"Failed to import local modules. Error: {e}. Ensure they are in the correct path and all dependencies are installed.")
-    # Fallback for cases where the above might fail in certain execution contexts (though less likely with flask run)
-    # Ensure these are also relative if the script is run as part of the package
-    from . import database as db
-    from .services import twitter_service, email_service
-    from .crew import crew
+    logger.error(f"Failed to import local modules. Error: {e}. Ensure they are in the correct path and all dependencies are installed.")
+    raise
 
 # Initialize Flask app
-app = Flask(__name__, template_folder='../templates', static_folder='../static')
+app = Flask(__name__, template_folder='./templates', static_folder='./static')
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "supersecretkey_fixed_schedule")
 
 # Configuration for url_for with _external=True outside of request context

@@ -10,7 +10,7 @@ from flask import Flask, jsonify
 import logging
 
 # Import database functions
-from app.database import init_db
+from database import init_db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -61,7 +61,7 @@ def initialize_database():
 def check_database_status():
     """Check database connection and basic status"""
     try:
-        from app.database import get_db_connection
+        from database import get_db_connection
         
         conn = get_db_connection()
         cursor = conn.cursor()
