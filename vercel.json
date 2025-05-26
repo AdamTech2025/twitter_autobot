@@ -1,19 +1,5 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "api/cron.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "api/init-db.py",
-      "use": "@vercel/python"
-    }
-  ],
   "routes": [
     {
       "src": "/api/init-db",
@@ -40,15 +26,17 @@
   },
   "functions": {
     "api/index.py": {
+      "runtime": "@vercel/python",
       "maxDuration": 30
     },
     "api/cron.py": {
+      "runtime": "@vercel/python",
       "maxDuration": 300
     },
     "api/init-db.py": {
+      "runtime": "@vercel/python",
       "maxDuration": 60
     }
   },
-  "regions": ["iad1"],
-  "framework": "flask"
+  "regions": ["iad1"]
 } 
