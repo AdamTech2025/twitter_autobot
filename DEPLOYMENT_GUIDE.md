@@ -39,6 +39,11 @@ EMAIL_SENDER_ADDRESS=your-email@gmail.com
 EMAIL_SENDER_PASSWORD=your-app-password
 ```
 
+#### AI Content Generation (Optional but recommended)
+```
+OPENAI_API_KEY=your_openai_api_key
+```
+
 #### Optional Security
 ```
 CRON_SECRET=your_cron_secret_key

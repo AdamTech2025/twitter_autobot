@@ -1,124 +1,92 @@
 import os
+import json
 from dotenv import load_dotenv
-from crewai import Agent, Task, Crew, Process
-from langchain_google_genai import ChatGoogleGenerativeAI
-import litellm
-from litellm import completion
+from openai import OpenAI
+import logging
 
-# Load environment variables from ../.env
-dotenv_path = os.path.join(os.path.dirname(__file__), '../.env')
+# Load environment variables
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(dotenv_path=dotenv_path)
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+logger = logging.getLogger(__name__)
 
-class GeminiWrapper:
+# Initialize OpenAI client
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
+class LightweightCrew:
+    """Lightweight replacement for CrewAI using direct OpenAI API calls"""
+    
     def __init__(self):
-        self.model = "gemini/gemini-1.5-flash"
-        self.api_key = GOOGLE_API_KEY
-        if not self.api_key:
-            raise ValueError("GOOGLE_API_KEY not found in environment variables.")
+        if not client:
+            logger.warning("OpenAI API key not found. Content generation will use fallback method.")
+    
+    def kickoff(self, user_topics=None):
+        """Generate content using OpenAI API instead of CrewAI"""
+        try:
+            if not client:
+                return self._fallback_content_generation(user_topics)
+            
+            # Create a prompt based on user topics
+            topics_text = ", ".join(user_topics) if user_topics else "AI, technology, business"
+            
+            prompt = f"""
+            You are a professional social media content creator. Create ONE engaging tweet about trending topics related to: {topics_text}
 
-    def chat_completion_create(self, messages):
-        response = completion(
-            model=self.model,
-            messages=messages,
-            api_key=self.api_key
-        )
-        return response.choices[0].message.content
+            Requirements:
+            - Maximum 280 characters
+            - Professional and informative tone
+            - Include relevant hashtags
+            - Make it engaging and thought-provoking
+            - Focus on current trends and insights
 
-    def __call__(self, messages, **kwargs):
-        return self.chat_completion_create(messages)
+            Return only the tweet text, nothing else.
+            """
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a professional social media content creator specializing in tech and business content."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=100,
+                temperature=0.7
+            )
+            
+            generated_tweet = response.choices[0].message.content.strip()
+            logger.info(f"Generated tweet using OpenAI: {generated_tweet}")
+            return generated_tweet
+            
+        except Exception as e:
+            logger.error(f"Error generating content with OpenAI: {e}")
+            return self._fallback_content_generation(user_topics)
+    
+    def _fallback_content_generation(self, user_topics=None):
+        """Fallback content generation when OpenAI is not available"""
+        if user_topics:
+            topics_str = ", ".join(user_topics[:3])
+            templates = [
+                f"Exploring the latest developments in {topics_str}. What trends are you seeing? #Innovation #Tech",
+                f"The future of {topics_str} is evolving rapidly. Share your insights! #TechTrends #Future",
+                f"Key insights on {topics_str} that every professional should know. What's your take? #Business #Growth",
+                f"Breaking down the impact of {topics_str} on modern business. Thoughts? #Technology #Strategy"
+            ]
+            import random
+            return random.choice(templates)
+        else:
+            return "Staying ahead of the curve with the latest tech innovations. What's catching your attention today? #AI #Tech #Innovation"
 
-llm = GeminiWrapper() if GOOGLE_API_KEY else None
+# Create global crew instance
+crew = LightweightCrew()
 
-# === Agents (focused on ONE tweet only) ===
-trending_agent = Agent(
-    role="Trending Topic Identifier",
-    goal="Identify one trending and relevant topic from X.com about AI, business, finance, deep tech, or education.",
-    backstory="You're a trendspotter who knows what's hot right now.",
-    verbose=True,
-    allow_delegation=False,
-    llm=llm
-)
+# Test function
+def test_content_generation():
+    """Test the content generation"""
+    test_topics = ["AI", "Machine Learning", "Business"]
+    result = crew.kickoff(test_topics)
+    print(f"Generated content: {result}")
+    return result
 
-content_generator_agent = Agent(
-    role="Tweet Generator",
-    goal="Write one high-quality, engaging, and professional tweet based on a trending topic.",
-    backstory="You're a top-notch copywriter skilled at creating viral tweets.",
-    verbose=True,
-    allow_delegation=False,
-    llm=llm
-)
-
-humanizer_agent = Agent(
-    role="Tweet Humanizer",
-    goal="Make the tweet sound more natural and human while keeping it informative and professional.",
-    backstory="You're a social media whisperer who makes posts relatable.",
-    verbose=True,
-    allow_delegation=False,
-    llm=llm
-)
-
-validator_agent = Agent(
-    role="Tweet Validator",
-    goal="Check the tweet for tone, clarity, and compliance with X.com's guidelines.",
-    backstory="You're a quality gatekeeper who ensures only perfect content goes out.",
-    verbose=True,
-    allow_delegation=False,
-    llm=llm
-)
-
-# === Tasks (one tweet workflow) ===
-trending_task = Task(
-    description="Identify one hot trending topic from X.com related to AI, business, finance, deep tech, or education.",
-    agent=trending_agent,
-    expected_output="A single trending topic title or short description."
-)
-
-generation_task = Task(
-    description="Write one engaging, insightful tweet for the trending topic.",
-    agent=content_generator_agent,
-    expected_output="A single tweet (280 characters max).",
-    context=[trending_task]
-)
-
-humanize_task = Task(
-    description="Make the tweet more human, clear, and engaging without losing factual accuracy.",
-    agent=humanizer_agent,
-    expected_output="A single improved tweet.",
-    context=[generation_task]
-)
-
-validation_task = Task(
-    description="Validate the tweet for tone, accuracy, and X.com policy compliance.",
-    agent=validator_agent,
-    expected_output="One final approved tweet.",
-    context=[humanize_task]
-)
-
-# === Crew Setup ===
-crew = Crew(
-    agents=[
-        trending_agent,
-        content_generator_agent,
-        humanizer_agent,
-        validator_agent
-    ],
-    tasks=[
-        trending_task,
-        generation_task,
-        humanize_task,
-        validation_task
-    ],
-    process=Process.sequential,
-    verbose=True,
-    max_iterations=5
-)
-
-# === Run Crew ===
 if __name__ == "__main__":
-    final_tweet = crew.kickoff()
-    print("\n✅ FINAL APPROVED TWEET:\n")
-    print(final_tweet)
-
-print("✅ crew.py loaded successfully.")
+    print("✅ Lightweight crew.py loaded successfully.")
+    test_content_generation()

@@ -437,34 +437,12 @@ def scheduled_content_generation_job():
                     logger.warning(f"SCHEDULER: No topics for user {user['id']}. Skipping.")
                     continue
                 
-                logger.info(f"SCHEDULER: Generating content for @{user['screen_name']} with user-selected topics: {topics_list}. The crew will identify broader trending topics.")
+                logger.info(f"SCHEDULER: Generating content for @{user['screen_name']} with user-selected topics: {topics_list}.")
                 
-                # TODO: Decide how to pass user_topics to the crew if needed.
-                # For now, the crew defined in crew.py starts with its own trending_agent.
-                # We are calling kickoff() without specific inputs related to the user's topics here.
-                # The crew.py would need modification to accept and use these user_topics.
-                results = crew.kickoff() # Call kickoff() on the imported crew object
-
-                logger.info(f"SCHEDULER: Crew kickoff for @{user['screen_name']} completed. Raw results: {results}")
-
-                # TODO: Process 'results' to extract individual tweets and adapt the following logic.
-                # The 'results' will be the output of the last task in crew.py (notification_task).
-                # We need to find the output of 'validation_task' within the crew's execution or modify crew.py
-                # to make this more accessible.
-
-                # For now, let's assume 'results' is a placeholder and this part needs complete rework:
-                generated_text_to_confirm = None # Placeholder
-                if results: # This condition needs to be more specific based on actual crew output
-                    # This is a placeholder for extracting ONE tweet. 
-                    # If results contain multiple tweets, this logic needs to loop or be rethought.
-                    if isinstance(results, str): # Simplistic check, likely needs to be more robust
-                        generated_text_to_confirm = results 
-                    else:
-                        # Attempt to find a string representation if results is complex
-                        # This part is highly dependent on the actual structure of 'results'
-                        # from your specific crew's final task.
-                        logger.warning(f"SCHEDULER: Crew results are not a simple string: {type(results)}. Trying to stringify. Needs proper parsing.")
-                        generated_text_to_confirm = str(results) # Fallback, likely not a usable tweet
+                # Generate content using lightweight crew (OpenAI or fallback)
+                generated_text_to_confirm = crew.kickoff(user_topics=topics_list)
+                
+                logger.info(f"SCHEDULER: Generated content for @{user['screen_name']}: {generated_text_to_confirm}")
 
                 if generated_text_to_confirm:
                     confirmation_token = str(uuid.uuid4())
