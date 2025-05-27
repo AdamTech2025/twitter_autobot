@@ -4,21 +4,25 @@ import logging
 from datetime import datetime
 
 # Database configuration for both development and production
-if os.environ.get('VERCEL_ENV'):
-    # Production environment - use PostgreSQL
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-    
-    # Vercel Postgres connection
-    DATABASE_URL = os.environ.get('POSTGRES_URL')
-    if not DATABASE_URL:
-        raise ValueError("POSTGRES_URL environment variable is required in production")
-    
-    logger = logging.getLogger(__name__)
-    logger.info("Using PostgreSQL database in production")
+# Check if we have a Neon database URL (for production/cloud deployment)
+DATABASE_URL = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL') or os.environ.get('NEON_DATABASE_URL')
+
+if DATABASE_URL:
+    # Production environment - use PostgreSQL (Neon or other)
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        USE_POSTGRES = True
+        logger = logging.getLogger(__name__)
+        logger.info("Using PostgreSQL database (Neon) in production")
+    except ImportError:
+        logger = logging.getLogger(__name__)
+        logger.error("psycopg2 not installed but DATABASE_URL provided. Install with: pip install psycopg2-binary")
+        raise
 else:
     # Development environment - use SQLite
-    DATABASE_PATH = os.path.join(os.path.dirname(__file__), '..', 'twitter_bot.db')
+    DATABASE_PATH = os.path.join(os.path.dirname(__file__), 'twitter_bot.db')
+    USE_POSTGRES = False
     logger = logging.getLogger(__name__)
     logger.info("Using SQLite database in development")
 
@@ -26,9 +30,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def get_db_connection():
-    """Get database connection - PostgreSQL in production, SQLite in development"""
-    if os.environ.get('VERCEL_ENV'):
-        # PostgreSQL connection for production
+    """Get database connection - PostgreSQL for Neon, SQLite for development"""
+    if USE_POSTGRES:
+        # PostgreSQL connection for Neon database
         conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
         return conn
     else:
@@ -39,8 +43,8 @@ def get_db_connection():
 
 def init_db():
     """Initialize database with proper schema for both PostgreSQL and SQLite"""
-    if os.environ.get('VERCEL_ENV'):
-        logger.info("Initializing PostgreSQL database for production")
+    if USE_POSTGRES:
+        logger.info("Initializing PostgreSQL database (Neon)")
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -167,7 +171,7 @@ def create_or_update_user(twitter_id, screen_name, oauth_token, oauth_token_secr
     cursor = conn.cursor()
     try:
         # Use appropriate parameter placeholder for database type
-        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        param_placeholder = "%s" if USE_POSTGRES else "?"
         
         cursor.execute(f"SELECT id, topics FROM users WHERE twitter_id = {param_placeholder}", (twitter_id,))
         user_row = cursor.fetchone()
@@ -180,7 +184,7 @@ def create_or_update_user(twitter_id, screen_name, oauth_token, oauth_token_secr
             if topics is None:
                 final_topics = user_row['topics'] 
 
-            if os.environ.get('VERCEL_ENV'):
+            if USE_POSTGRES:
                 # PostgreSQL update
                 cursor.execute("""
                     UPDATE users 
@@ -206,7 +210,7 @@ def create_or_update_user(twitter_id, screen_name, oauth_token, oauth_token_secr
                 cursor.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
         else:
             logger.info(f"Creating new user for twitter_id {twitter_id}. Topics: {final_topics}")
-            if os.environ.get('VERCEL_ENV'):
+            if USE_POSTGRES:
                 # PostgreSQL insert
                 cursor.execute("""
                     INSERT INTO users (twitter_id, screen_name, oauth_token, oauth_token_secret, email, topics, is_active)
@@ -235,7 +239,7 @@ def get_user_by_id(user_id):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        param_placeholder = "%s" if USE_POSTGRES else "?"
         cursor.execute(f"SELECT * FROM users WHERE id = {param_placeholder}", (user_id,))
         user = cursor.fetchone()
         return dict(user) if user else None
@@ -246,7 +250,7 @@ def get_user_by_twitter_id(twitter_id):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        param_placeholder = "%s" if USE_POSTGRES else "?"
         cursor.execute(f"SELECT * FROM users WHERE twitter_id = {param_placeholder}", (twitter_id,))
         user = cursor.fetchone()
         return dict(user) if user else None
@@ -258,9 +262,8 @@ def update_user_email(user_id, email):
     cursor = conn.cursor()
     try:
         email_to_store = email if email and email.strip() else None
-        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
         
-        if os.environ.get('VERCEL_ENV'):
+        if USE_POSTGRES:
             cursor.execute("UPDATE users SET email = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (email_to_store, user_id))
         else:
             cursor.execute("UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (email_to_store, user_id))
@@ -279,7 +282,7 @@ def update_user_topics(user_id, topics_json):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        if os.environ.get('VERCEL_ENV'):
+        if USE_POSTGRES:
             cursor.execute("UPDATE users SET topics = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (topics_json, user_id))
         else:
             cursor.execute("UPDATE users SET topics = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (topics_json, user_id))
@@ -297,7 +300,7 @@ def set_user_active_status(user_id, is_active):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        if os.environ.get('VERCEL_ENV'):
+        if USE_POSTGRES:
             cursor.execute("UPDATE users SET is_active = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (is_active, user_id))
         else:
             cursor.execute("UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (is_active, user_id))
@@ -337,7 +340,7 @@ def add_generated_content(user_id, generated_content, status, confirmation_token
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        if os.environ.get('VERCEL_ENV'):
+        if USE_POSTGRES:
             # PostgreSQL
             cursor.execute("""
                 INSERT INTO ai_generated_content_history (user_id, generated_content, status, confirmation_token)
@@ -365,7 +368,7 @@ def get_history_by_user_id(user_id, limit=20):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        param_placeholder = "%s" if USE_POSTGRES else "?"
         cursor.execute(f"""
             SELECT h.*, u.screen_name FROM ai_generated_content_history h
             JOIN users u ON h.user_id = u.id
@@ -385,7 +388,7 @@ def get_content_by_confirmation_token(confirmation_token):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        param_placeholder = "%s" if os.environ.get('VERCEL_ENV') else "?"
+        param_placeholder = "%s" if USE_POSTGRES else "?"
         cursor.execute(f"""
             SELECT h.*, u.screen_name, u.oauth_token, u.oauth_token_secret, u.email as user_email, u.is_active as user_is_active
             FROM ai_generated_content_history h
@@ -404,7 +407,7 @@ def update_content_status(content_id, status, posted_at=None):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        if os.environ.get('VERCEL_ENV'):
+        if USE_POSTGRES:
             # PostgreSQL
             if posted_at:
                 cursor.execute("UPDATE ai_generated_content_history SET status = %s, posted_at = %s WHERE id = %s", (status, posted_at, content_id))
