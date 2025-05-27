@@ -61,18 +61,18 @@
     <!-- Settings Panel -->
     <div class="bg-gray-800 rounded-lg p-6 mb-8">
       <h2 class="text-xl font-semibold mb-6">Settings</h2>
-      
+
       <!-- Email Input -->
       <div class="mb-6">
         <label class="block text-sm font-medium mb-2">Email for Notifications</label>
-        <input
-          type="email"
-          id="emailInput"
+          <input
+            type="email"
+            id="emailInput"
           class="w-full max-w-md p-3 rounded-lg bg-gray-700 border border-gray-600 focus:border-blue-500 focus:outline-none"
           placeholder="your-email@domain.com"
-          value="{{ email if email else '' }}"
-        />
-      </div>
+            value="{{ email if email else '' }}"
+          />
+        </div>
 
       <!-- Topics Selection -->
       <div class="mb-6">
@@ -92,7 +92,7 @@
             <span>#Innovation</span>
           </label>
         </div>
-        
+
         <!-- Add Custom Topic -->
         <div class="flex items-center space-x-3">
           <input
@@ -118,17 +118,17 @@
       <h2 class="text-xl font-semibold mb-6">Generated Content History</h2>
       
       {% if tweet_history %}
-        <div class="overflow-x-auto">
+      <div class="overflow-x-auto">
           <table class="w-full">
-            <thead>
+          <thead>
               <tr class="text-left border-b border-gray-700">
                 <th class="pb-3 pr-4">Content</th>
                 <th class="pb-3 pr-4">Account</th>
                 <th class="pb-3 pr-4">Created</th>
                 <th class="pb-3 pr-4">Status</th>
                 <th class="pb-3">Posted</th>
-              </tr>
-            </thead>
+            </tr>
+          </thead>
             <tbody class="space-y-2">
               {% for item in tweet_history %}
               <tr class="border-t border-gray-700">
@@ -149,9 +149,9 @@
                 </td>
               </tr>
               {% endfor %}
-            </tbody>
-          </table>
-        </div>
+          </tbody>
+        </table>
+      </div>
       {% else %}
         <div class="text-center py-8 text-gray-400">
           <p class="text-lg">No content generated yet</p>
@@ -226,20 +226,20 @@
       const value = customTopicInput.value.trim();
       if (!value) return;
 
-      if (!value.startsWith('#')) {
+        if (!value.startsWith('#')) {
         showToast('Topic must start with #', 'warning');
-        return;
-      }
+          return;
+        }
 
       // Check for duplicates
       const existingTopics = Array.from(document.querySelectorAll('.topic-checkbox')).map(cb => cb.value);
       if (existingTopics.includes(value)) {
         showToast('Topic already exists', 'info');
-        return;
-      }
+          return;
+        }
 
       // Create new topic element
-      const label = document.createElement('label');
+        const label = document.createElement('label');
       label.className = 'flex items-center space-x-2 bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg cursor-pointer transition-colors';
       label.innerHTML = `
         <input type="checkbox" value="${value}" class="topic-checkbox" checked>
@@ -248,8 +248,8 @@
       `;
       
       topicsContainer.appendChild(label);
-      customTopicInput.value = '';
-    }
+        customTopicInput.value = '';
+      }
 
     function removeTopic(btn) {
       btn.closest('label').remove();
@@ -262,7 +262,7 @@
       document.querySelectorAll('.topic-checkbox').forEach(cb => {
         cb.checked = topics.includes(cb.value);
       });
-
+      
       // Add custom topics
       const defaultTopics = ['#AI', '#TechNews', '#Innovation'];
       topics.forEach(topic => {
@@ -292,7 +292,7 @@
         showToast('Please enter a valid email address', 'warning');
         return;
       }
-
+      
       if (!email && selectedTopics.length === 0) {
         showToast('Please enter an email or select topics', 'info');
         return;

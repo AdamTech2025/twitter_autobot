@@ -23,7 +23,19 @@
   "crons": [
     {
       "path": "/api/cron/content-generation",
-      "schedule": "0 14 * * *"
+      "schedule": "30 5 * * *"
+    },
+    {
+      "path": "/api/cron/content-generation",
+      "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/cron/content-generation",
+      "schedule": "30 12 * * *"
+    },
+    {
+      "path": "/api/cron/content-generation",
+      "schedule": "30 14 * * *"
     }
   ],
   "env": {

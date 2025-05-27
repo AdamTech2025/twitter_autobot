@@ -388,7 +388,7 @@ def scheduled_content_generation_job():
 
 # Configure scheduler (development only)
 if not os.environ.get('VERCEL_ENV') and not scheduler.running:
-    scheduler.add_job(scheduled_content_generation_job, 'cron', hour=14, minute=0, id='content_gen_job_1400')
+    scheduler.add_job(scheduled_content_generation_job, 'cron', hour=12, minute=49, id='content_gen_job_1400')
     logger.info("Scheduled content generation job daily at 14:00 server time")
     
     try:

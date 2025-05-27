@@ -20,7 +20,7 @@ class LightweightCrew:
     def __init__(self):
         if not client:
             logger.warning("OpenAI API key not found. Content generation will use fallback method.")
-    
+
     def kickoff(self, user_topics=None):
         """Generate content using OpenAI API instead of CrewAI"""
         try:
