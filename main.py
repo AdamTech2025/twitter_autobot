@@ -38,11 +38,9 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "supersecretkey_fixed_schedu
 # App configuration
 if os.environ.get('VERCEL_ENV'):
     vercel_url = os.environ.get('VERCEL_URL') or os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')
-    if vercel_url:
-        app.config['SERVER_NAME'] = vercel_url
     app.config['PREFERRED_URL_SCHEME'] = 'https'
 else:
-    app.config['SERVER_NAME'] = os.environ.get('FLASK_SERVER_NAME', 'localhost:5001')
+    # Remove SERVER_NAME for local development to avoid DNS issues
     app.config['PREFERRED_URL_SCHEME'] = os.environ.get('FLASK_PREFERRED_URL_SCHEME', 'http')
 
 app.config['APPLICATION_ROOT'] = os.environ.get('FLASK_APPLICATION_ROOT', '/')
@@ -341,4 +339,4 @@ def confirm_content_route(token):
 
 if __name__ == '__main__':
     logger.info("Starting Flask app in development mode")
-    app.run(debug=True, port=5001)
+    app.run(debug=True, host='127.0.0.1', port=5001)
