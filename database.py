@@ -10,13 +10,13 @@ DATABASE_URL = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL') 
 if DATABASE_URL:
     # Production environment - use PostgreSQL (Neon or other)
     try:
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
         USE_POSTGRES = True
         logger = logging.getLogger(__name__)
         logger.info("Using PostgreSQL database (Neon) in production")
     except ImportError:
-    logger = logging.getLogger(__name__)
+        logger = logging.getLogger(__name__)
         logger.error("psycopg2 not installed but DATABASE_URL provided. Install with: pip install psycopg2-binary")
         raise
 else:
@@ -209,27 +209,32 @@ def create_or_update_user(twitter_id, screen_name, oauth_token, oauth_token_secr
                 
                 cursor.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
         else:
-            logger.info(f"Creating new user for twitter_id {twitter_id}. Topics: {final_topics}")
+            logger.info(f"Creating new user for twitter_id {twitter_id}.")
             if USE_POSTGRES:
                 # PostgreSQL insert
                 cursor.execute("""
                     INSERT INTO users (twitter_id, screen_name, oauth_token, oauth_token_secret, email, topics, is_active)
-                    VALUES (%s, %s, %s, %s, %s, %s, TRUE) RETURNING id
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+                    RETURNING id
                 """, (twitter_id, screen_name, oauth_token, oauth_token_secret, email, final_topics))
                 user_id = cursor.fetchone()['id']
             else:
                 # SQLite insert
                 cursor.execute("""
                     INSERT INTO users (twitter_id, screen_name, oauth_token, oauth_token_secret, email, topics, is_active)
-                    VALUES (?, ?, ?, ?, ?, ?, TRUE)
+                    VALUES (?, ?, ?, ?, ?, ?, 1)
                 """, (twitter_id, screen_name, oauth_token, oauth_token_secret, email, final_topics))
                 user_id = cursor.lastrowid
-        
+
         conn.commit()
-        logger.info(f"Successfully created/updated user: Twitter ID {twitter_id}, Internal ID {user_id}")
-        return get_user_by_id(user_id)
+        
+        # Return the user record
+        cursor.execute(f"SELECT * FROM users WHERE id = {param_placeholder}", (user_id,))
+        user_record = cursor.fetchone()
+        return dict(user_record) if user_record else None
+
     except Exception as e:
-        logger.error(f"Database error in create_or_update_user for twitter_id {twitter_id}: {e}")
+        logger.error(f"Error in create_or_update_user: {e}", exc_info=True)
         conn.rollback()
         return None
     finally:
@@ -237,23 +242,29 @@ def create_or_update_user(twitter_id, screen_name, oauth_token, oauth_token_secr
 
 def get_user_by_id(user_id):
     conn = get_db_connection()
+    cursor = conn.cursor()
     try:
-        cursor = conn.cursor()
         param_placeholder = "%s" if USE_POSTGRES else "?"
         cursor.execute(f"SELECT * FROM users WHERE id = {param_placeholder}", (user_id,))
-        user = cursor.fetchone()
-        return dict(user) if user else None
+        user_row = cursor.fetchone()
+        return dict(user_row) if user_row else None
+    except Exception as e:
+        logger.error(f"Error getting user by ID {user_id}: {e}", exc_info=True)
+        return None
     finally:
         conn.close()
 
 def get_user_by_twitter_id(twitter_id):
     conn = get_db_connection()
+    cursor = conn.cursor()
     try:
-        cursor = conn.cursor()
         param_placeholder = "%s" if USE_POSTGRES else "?"
         cursor.execute(f"SELECT * FROM users WHERE twitter_id = {param_placeholder}", (twitter_id,))
-        user = cursor.fetchone()
-        return dict(user) if user else None
+        user_row = cursor.fetchone()
+        return dict(user_row) if user_row else None
+    except Exception as e:
+        logger.error(f"Error getting user by Twitter ID {twitter_id}: {e}", exc_info=True)
+        return None
     finally:
         conn.close()
 
@@ -261,37 +272,50 @@ def update_user_email(user_id, email):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        email_to_store = email if email and email.strip() else None
-        
         if USE_POSTGRES:
-            cursor.execute("UPDATE users SET email = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (email_to_store, user_id))
+            cursor.execute("""
+                UPDATE users 
+                SET email = %s, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = %s
+            """, (email, user_id))
         else:
-            cursor.execute("UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (email_to_store, user_id))
+            cursor.execute("""
+                UPDATE users 
+                SET email = ?, updated_at = ? 
+                WHERE id = ?
+            """, (email, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
         
         conn.commit()
-        logger.info(f"Updated email for user ID {user_id} to '{email_to_store}'")
-        return True
+        return cursor.rowcount > 0
     except Exception as e:
-        logger.error(f"Database error in update_user_email for user ID {user_id}: {e}")
+        logger.error(f"Error updating email for user {user_id}: {e}", exc_info=True)
+        conn.rollback()
         return False
     finally:
         conn.close()
 
-# Renamed from update_user_schedule to update_user_topics as schedule_times is removed
 def update_user_topics(user_id, topics_json):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         if USE_POSTGRES:
-            cursor.execute("UPDATE users SET topics = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (topics_json, user_id))
+            cursor.execute("""
+                UPDATE users 
+                SET topics = %s, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = %s
+            """, (topics_json, user_id))
         else:
-            cursor.execute("UPDATE users SET topics = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (topics_json, user_id))
+            cursor.execute("""
+                UPDATE users 
+                SET topics = ?, updated_at = ? 
+                WHERE id = ?
+            """, (topics_json, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
         
         conn.commit()
-        logger.info(f"Updated topics for user ID {user_id}.")
-        return True
+        return cursor.rowcount > 0
     except Exception as e:
-        logger.error(f"Database error in update_user_topics for user ID {user_id}: {e}")
+        logger.error(f"Error updating topics for user {user_id}: {e}", exc_info=True)
+        conn.rollback()
         return False
     finally:
         conn.close()
@@ -301,56 +325,62 @@ def set_user_active_status(user_id, is_active):
     cursor = conn.cursor()
     try:
         if USE_POSTGRES:
-            cursor.execute("UPDATE users SET is_active = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (is_active, user_id))
+            cursor.execute("""
+                UPDATE users 
+                SET is_active = %s, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = %s
+            """, (is_active, user_id))
         else:
-            cursor.execute("UPDATE users SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (is_active, user_id))
+            cursor.execute("""
+                UPDATE users 
+                SET is_active = ?, updated_at = ? 
+                WHERE id = ?
+            """, (is_active, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
         
         conn.commit()
-        logger.info(f"Set active status for user ID {user_id} to {is_active}")
-        return True
+        return cursor.rowcount > 0
     except Exception as e:
-        logger.error(f"Database error in set_user_active_status for user ID {user_id}: {e}")
+        logger.error(f"Error updating active status for user {user_id}: {e}", exc_info=True)
+        conn.rollback()
         return False
     finally:
         conn.close()
 
-# Renamed from get_active_users_with_schedules to get_active_users_with_topics
 def get_active_users_with_topics():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("""
             SELECT * FROM users 
-            WHERE is_active = TRUE AND topics IS NOT NULL AND topics != '' AND topics != '[]'
+            WHERE is_active = TRUE 
+            AND topics IS NOT NULL 
+            AND topics != '' 
+            AND topics != '[]'
         """)
-        users = [dict(row) for row in cursor.fetchall()]
-        logger.info(f"Found {len(users)} active users with topics.")
-        return users
+        users = cursor.fetchall()
+        return [dict(user) for user in users]
     except Exception as e:
-        logger.error(f"Database error in get_active_users_with_topics: {e}")
+        logger.error(f"Error getting active users with topics: {e}", exc_info=True)
         return []
     finally:
         conn.close()
-
-# --- AI Generated Content History Functions (largely unchanged) ---
-# ... (rest of the functions: add_generated_content, get_history_by_user_id, etc. remain the same)
-# ... except ensuring they are still compatible if user object structure changes slightly (it doesn't much here)
 
 def add_generated_content(user_id, generated_content, status, confirmation_token=None):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         if USE_POSTGRES:
-            # PostgreSQL
             cursor.execute("""
-                INSERT INTO ai_generated_content_history (user_id, generated_content, status, confirmation_token)
-                VALUES (%s, %s, %s, %s) RETURNING id
+                INSERT INTO ai_generated_content_history 
+                (user_id, generated_content, status, confirmation_token)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
             """, (user_id, generated_content, status, confirmation_token))
             content_id = cursor.fetchone()['id']
         else:
-            # SQLite
             cursor.execute("""
-                INSERT INTO ai_generated_content_history (user_id, generated_content, status, confirmation_token)
+                INSERT INTO ai_generated_content_history 
+                (user_id, generated_content, status, confirmation_token)
                 VALUES (?, ?, ?, ?)
             """, (user_id, generated_content, status, confirmation_token))
             content_id = cursor.lastrowid
@@ -359,7 +389,8 @@ def add_generated_content(user_id, generated_content, status, confirmation_token
         logger.info(f"Added generated content to history for user ID {user_id}. Content ID: {content_id}, Status: {status}")
         return content_id
     except Exception as e:
-        logger.error(f"Database error in add_generated_content for user ID {user_id}: {e}")
+        logger.error(f"Error adding generated content for user {user_id}: {e}", exc_info=True)
+        conn.rollback()
         return None
     finally:
         conn.close()
@@ -370,16 +401,15 @@ def get_history_by_user_id(user_id, limit=20):
     try:
         param_placeholder = "%s" if USE_POSTGRES else "?"
         cursor.execute(f"""
-            SELECT h.*, u.screen_name FROM ai_generated_content_history h
-            JOIN users u ON h.user_id = u.id
-            WHERE h.user_id = {param_placeholder}
-            ORDER BY h.created_at DESC 
+            SELECT * FROM ai_generated_content_history 
+            WHERE user_id = {param_placeholder}
+            ORDER BY created_at DESC 
             LIMIT {param_placeholder}
         """, (user_id, limit))
-        history = [dict(row) for row in cursor.fetchall()]
-        return history
+        history = cursor.fetchall()
+        return [dict(item) for item in history]
     except Exception as e:
-        logger.error(f"Database error in get_history_by_user_id for user_id {user_id}: {e}")
+        logger.error(f"Error getting history for user {user_id}: {e}", exc_info=True)
         return []
     finally:
         conn.close()
@@ -398,7 +428,7 @@ def get_content_by_confirmation_token(confirmation_token):
         content = cursor.fetchone()
         return dict(content) if content else None
     except Exception as e:
-        logger.error(f"Database error in get_content_by_confirmation_token for token {confirmation_token}: {e}")
+        logger.error(f"Error getting content by token {confirmation_token}: {e}", exc_info=True)
         return None
     finally:
         conn.close()
@@ -408,59 +438,42 @@ def update_content_status(content_id, status, posted_at=None):
     cursor = conn.cursor()
     try:
         if USE_POSTGRES:
-            # PostgreSQL
             if posted_at:
-                cursor.execute("UPDATE ai_generated_content_history SET status = %s, posted_at = %s WHERE id = %s", (status, posted_at, content_id))
+                cursor.execute("""
+                    UPDATE ai_generated_content_history 
+                    SET status = %s, posted_at = %s 
+                    WHERE id = %s
+                """, (status, posted_at, content_id))
             else:
-                cursor.execute("UPDATE ai_generated_content_history SET status = %s WHERE id = %s", (status, content_id))
+                cursor.execute("""
+                    UPDATE ai_generated_content_history 
+                    SET status = %s 
+                    WHERE id = %s
+                """, (status, content_id))
         else:
-            # SQLite
             if posted_at:
-                cursor.execute("UPDATE ai_generated_content_history SET status = ?, posted_at = ? WHERE id = ?", (status, posted_at, content_id))
+                cursor.execute("""
+                    UPDATE ai_generated_content_history 
+                    SET status = ?, posted_at = ? 
+                    WHERE id = ?
+                """, (status, posted_at.strftime("%Y-%m-%d %H:%M:%S") if posted_at else None, content_id))
             else:
-                cursor.execute("UPDATE ai_generated_content_history SET status = ? WHERE id = ?", (status, content_id))
+                cursor.execute("""
+                    UPDATE ai_generated_content_history 
+                    SET status = ? 
+                    WHERE id = ?
+                """, (status, content_id))
         
         conn.commit()
-        logger.info(f"Updated status for content ID {content_id} to {status}")
-        return True
+        return cursor.rowcount > 0
     except Exception as e:
-        logger.error(f"Database error in update_content_status for content ID {content_id}: {e}")
+        logger.error(f"Error updating content status for ID {content_id}: {e}", exc_info=True)
+        conn.rollback()
         return False
     finally:
         conn.close()
 
-if __name__ == '__main__':
-    logger.info("Running init_db() directly for setup/reset (no schedule_times).")
-    init_db()
-    logger.info("Manual init_db() run complete (no schedule_times).")
-
-    # Example Usage (for testing - normally called by the app)
-    # test_user = create_or_update_user(twitter_id="test_twitter_123", screen_name="TestUser", oauth_token="test_oauth", oauth_token_secret="test_secret", email="test@example.com", topics='["AI", "Testing"]')
-    # if test_user:
-    #     logger.info(f"Test user created/updated: {test_user}")
-    #     retrieved_user_by_tid = get_user_by_twitter_id("test_twitter_123")
-    #     logger.info(f"Retrieved user by twitter_id: {retrieved_user_by_tid}")
-    #     retrieved_user_by_id = get_user_by_id(test_user['id'])
-    #     logger.info(f"Retrieved user by internal id: {retrieved_user_by_id}")
-
-    #     update_user_email(test_user['id'], "updated_test@example.com")
-    #     update_user_topics(test_user['id'], '["Flask", "Python"]')
-    #     logger.info(f"Updated user details: {get_user_by_id(test_user['id'])}")
-        
-    #     content_id = add_generated_content(test_user['id'], "This is a test AI generated content.", "pending_confirmation", "test_confirm_token_xyz")
-    #     if content_id:
-    #         logger.info(f"Test content added with ID: {content_id}")
-    #         history = get_history_by_user_id(test_user['id'])
-    #         logger.info(f"Content history for user {test_user['id']}: {history}")
-            
-    #         retrieved_content = get_content_by_confirmation_token("test_confirm_token_xyz")
-    #         logger.info(f"Retrieved content by token: {retrieved_content}")
-    #         if retrieved_content:
-    #             update_content_status(retrieved_content['id'], "posted", datetime.now())
-    #             logger.info(f"Updated content status for ID {retrieved_content['id']}")
-        
-    #     active_users = get_active_users_with_topics()
-    #     logger.info(f"Active users with topics: {active_users}")
-        
-    #     set_user_active_status(test_user['id'], False)
-    #     logger.info(f"Set user inactive: {get_user_by_id(test_user['id'])}") 
+# Initialize database on import (for development)
+if not USE_POSTGRES and not os.path.exists(DATABASE_PATH):
+    logger.info("Database file doesn't exist, initializing...")
+    init_db() 
