@@ -72,12 +72,12 @@ Expected response:
 }
 ```
 
-## Cron Schedule (UTC Timezone)
+## Cron Schedule (IST - Indian Standard Time)
 The cron jobs are configured to run at:
-- **05:30 UTC** (1:30 AM EST / 12:30 AM CST)
-- **09:30 UTC** (5:30 AM EST / 4:30 AM CST)  
-- **12:30 UTC** (8:30 AM EST / 7:30 AM CST)
-- **14:30 UTC** (10:30 AM EST / 9:30 AM CST)
+- **09:00 AM IST** (03:30 UTC)
+- **02:55 PM IST** (09:25 UTC)  
+- **06:00 PM IST** (12:30 UTC)
+- **08:30 PM IST** (15:00 UTC)
 
 ## Environment Variables Required
 Make sure these are set in your Vercel dashboard:

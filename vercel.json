@@ -31,19 +31,23 @@
   "crons": [
     {
       "path": "/api/cron/content-generation",
-      "schedule": "30 5 * * *"
+      "schedule": "30 3 * * *",
+      "comment": "09:00 AM IST"
     },
     {
       "path": "/api/cron/content-generation",
-      "schedule": "30 9 * * *"
+      "schedule": "30 9 * * *",
+      "comment": "03:00 PM IST"
     },
     {
       "path": "/api/cron/content-generation",
-      "schedule": "30 12 * * *"
+      "schedule": "30 12 * * *",
+      "comment": "06:00 PM IST"
     },
     {
       "path": "/api/cron/content-generation",
-      "schedule": "30 14 * * *"
+      "schedule": "0 15 * * *",
+      "comment": "08:30 PM IST"
     }
   ],
   "env": {
