@@ -6,7 +6,6 @@ import json
 import re
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
-from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 
 # Configure logging
@@ -51,8 +50,6 @@ app.config['APPLICATION_ROOT'] = os.environ.get('FLASK_APPLICATION_ROOT', '/')
 TWITTER_CALLBACK_URL = os.environ.get("TWITTER_CALLBACK_URL")
 if not TWITTER_CALLBACK_URL:
     logger.warning("TWITTER_CALLBACK_URL not set in environment")
-
-scheduler = BackgroundScheduler()
 
 # Helper Functions
 def get_current_user_from_session():
@@ -341,64 +338,6 @@ def confirm_content_route(token):
         flash(f"Failed to post: {e}", "error")
     
     return redirect(url_for('index'))
-
-# Background Job
-def scheduled_content_generation_job():
-    """Generate and send content for active users"""
-    with app.app_context(): 
-        logger.info("SCHEDULER: Running scheduled content generation job")
-        active_users = db.get_active_users_with_topics()
-        logger.info(f"SCHEDULER: Found {len(active_users)} active users with topics")
-
-        for user in active_users:
-            try:
-                topics_raw = user.get('topics')
-                topics_list = json.loads(topics_raw) if topics_raw else []
-                if not topics_list:
-                    continue
-                
-                logger.info(f"SCHEDULER: Generating content for @{user['screen_name']}")
-                
-                # Generate content
-                generated_content = crew.kickoff(user_topics=topics_list)
-                
-                if generated_content:
-                    confirmation_token = str(uuid.uuid4())
-                    db.add_generated_content(user['id'], generated_content, 'pending_confirmation', confirmation_token)
-                    
-                    # Send confirmation email
-                    if user.get('email'):
-                        email_html = render_template('email_confirmation.html',
-                            screen_name=user['screen_name'],
-                            generated_content=generated_content,
-                            topics_used=', '.join(topics_list),
-                            confirm_url=url_for('confirm_content_route', token=confirmation_token, _external=True),
-                            current_year=datetime.now(timezone.utc).year
-                        )
-                        
-                        email_service.send_email(
-                            recipient_email=user['email'], 
-                            subject="🤖 Your AI Content is Ready for Review!",
-                            body_html=email_html
-                        )
-                        logger.info(f"SCHEDULER: Confirmation email sent to {user['email']}")
-                        
-            except Exception as e:
-                logger.error(f"SCHEDULER: Error processing user @{user.get('screen_name', 'Unknown')}: {e}", exc_info=True)
-
-# Configure scheduler (development only)
-if not os.environ.get('VERCEL_ENV') and not scheduler.running:
-    scheduler.add_job(scheduled_content_generation_job, 'cron', hour=12, minute=49, id='content_gen_job_1400')
-    logger.info("Scheduled content generation job daily at 14:00 server time")
-    
-    try:
-        scheduler.start()
-        logger.info("APScheduler started")
-    except Exception as e:
-        logger.error(f"Error starting APScheduler: {e}", exc_info=True)
-else:
-    if os.environ.get('VERCEL_ENV'):
-        logger.info("Scheduler disabled in production (Vercel)")
 
 if __name__ == '__main__':
     logger.info("Starting Flask app in development mode")
