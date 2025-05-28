@@ -12,7 +12,15 @@
       "dest": "api/init-db.py"
     },
     {
-      "src": "/api/cron/(.*)",
+      "src": "/api/cron/content-generation",
+      "dest": "api/cron.py"
+    },
+    {
+      "src": "/api/cron/health",
+      "dest": "api/cron.py"
+    },
+    {
+      "src": "/api/cron/test",
       "dest": "api/cron.py"
     },
     {
