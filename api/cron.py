@@ -73,7 +73,7 @@ def scheduled_content_generation_job():
                         if base_url and not base_url.startswith('http'):
                             base_url = f"https://{base_url}"
                         elif not base_url:
-                            base_url = "https://twitter-autobot.vercel.app"  # actual live URL
+                            base_url = "https://twitter-autobot.vercel.app/"  
                         
                         confirm_url = f"{base_url}/confirm-tweet/{confirmation_token}"
                         dashboard_url = f"{base_url}/"
