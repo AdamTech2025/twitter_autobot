@@ -36,8 +36,8 @@
     },
     {
       "path": "/api/cron/content-generation",
-      "schedule": "0 10 * * *",
-      "comment": "03:30 PM IST"
+      "schedule": "10 10 * * *",
+      "comment": "03:40 PM IST"
     },
     {
       "path": "/api/cron/content-generation",

@@ -10,13 +10,13 @@ DATABASE_URL = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL') 
 if DATABASE_URL:
     # Production environment - use PostgreSQL (Neon or other)
     try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
         USE_POSTGRES = True
         logger = logging.getLogger(__name__)
         logger.info("Using PostgreSQL database (Neon) in production")
     except ImportError:
-        logger = logging.getLogger(__name__)
+    logger = logging.getLogger(__name__)
         logger.error("psycopg2 not installed but DATABASE_URL provided. Install with: pip install psycopg2-binary")
         raise
 else:
