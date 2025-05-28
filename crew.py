@@ -62,31 +62,43 @@ class LightweightCrew:
             prompt = f"""You are a professional social media content creator. Create ONE engaging tweet about trending topics related to: {topics_text}
 
 Requirements:
-- Maximum 280 characters
+- Maximum 280 characters (this is critical - count characters carefully)
 - Professional and informative tone
-- Include relevant hashtags
+- NO hashtags at all
 - Make it engaging and thought-provoking
 - Focus on current trends and insights
+- Write as a statement, question, or insight
+- Keep it conversational and natural
 
-Return only the tweet text, nothing else."""
+Return only the tweet text, nothing else. Do not include any hashtags."""
             
             if self.provider == "gemini":
                 response = self.client.generate_content(prompt)
                 generated_tweet = response.text.strip()
-                logger.info(f"Generated tweet using Gemini: {generated_tweet}")
+                
+                # Ensure character limit
+                if len(generated_tweet) > 280:
+                    generated_tweet = generated_tweet[:277] + "..."
+                
+                logger.info(f"Generated tweet using Gemini ({len(generated_tweet)} chars): {generated_tweet}")
                 
             elif self.provider == "openai":
                 response = self.client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
-                        {"role": "system", "content": "You are a professional social media content creator specializing in tech and business content."},
+                        {"role": "system", "content": "You are a professional social media content creator. Always create content under 280 characters with no hashtags."},
                         {"role": "user", "content": prompt}
                     ],
                     max_tokens=100,
                     temperature=0.7
                 )
                 generated_tweet = response.choices[0].message.content.strip()
-                logger.info(f"Generated tweet using OpenAI: {generated_tweet}")
+                
+                # Ensure character limit
+                if len(generated_tweet) > 280:
+                    generated_tweet = generated_tweet[:277] + "..."
+                
+                logger.info(f"Generated tweet using OpenAI ({len(generated_tweet)} chars): {generated_tweet}")
             
             return generated_tweet
             
@@ -99,15 +111,24 @@ Return only the tweet text, nothing else."""
         if user_topics:
             topics_str = ", ".join(user_topics[:3])
             templates = [
-                f"Exploring the latest developments in {topics_str}. What trends are you seeing? #Innovation #Tech",
-                f"The future of {topics_str} is evolving rapidly. Share your insights! #TechTrends #Future",
-                f"Key insights on {topics_str} that every professional should know. What's your take? #Business #Growth",
-                f"Breaking down the impact of {topics_str} on modern business. Thoughts? #Technology #Strategy"
+                f"Exploring the latest developments in {topics_str}. What trends are you seeing in your industry?",
+                f"The future of {topics_str} is evolving rapidly. How are you adapting to these changes?",
+                f"Key insights on {topics_str} that every professional should know. What's your perspective?",
+                f"Breaking down the impact of {topics_str} on modern business. What patterns do you notice?",
+                f"The intersection of {topics_str} is creating new opportunities. Where do you see the biggest potential?",
+                f"Understanding {topics_str} has become essential for staying competitive. What's your experience?"
             ]
             import random
-            return random.choice(templates)
+            selected_template = random.choice(templates)
+            
+            # Ensure character limit
+            if len(selected_template) > 280:
+                selected_template = selected_template[:277] + "..."
+                
+            return selected_template
         else:
-            return "Staying ahead of the curve with the latest tech innovations. What's catching your attention today? #AI #Tech #Innovation"
+            fallback_content = "Staying ahead of the curve with the latest tech innovations. What's catching your attention today?"
+            return fallback_content
 
 # Create global crew instance
 crew = LightweightCrew()
