@@ -47,7 +47,7 @@
     },
     {
       "path": "/api/cron/content-generation",
-      "schedule": "20 13 * * *"
+      "schedule": "32 13 * * *"
     }
   ],
   "env": {
