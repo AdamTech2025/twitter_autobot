@@ -24,6 +24,8 @@ try:
     import twitter_service
     import email_service
     from crew import crew
+    # Import main app to get route definitions
+    from main import app as main_app
 except ImportError as e:
     logging.error(f"Failed to import required modules: {e}")
     raise
@@ -68,15 +70,42 @@ def scheduled_content_generation_job():
                     
                     # Send confirmation email
                     if user.get('email'):
-                        # Build URLs manually for cron context
-                        base_url = os.environ.get('VERCEL_URL') or os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')
-                        if base_url and not base_url.startswith('http'):
-                            base_url = f"https://{base_url}"
-                        elif not base_url:
-                            base_url = "https://twitter-autobot.vercel.app/"  
+                        # Simple manual construction (most reliable approach)
+                        # Get the proper production domain
+                        production_domain = None
                         
-                        confirm_url = f"{base_url}/confirm-tweet/{confirmation_token}"
-                        dashboard_url = f"{base_url}/"
+                        # Priority order for getting the production URL
+                        if os.environ.get('VERCEL_PROJECT_PRODUCTION_URL'):
+                            production_domain = os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')
+                        elif os.environ.get('VERCEL_URL'):
+                            production_domain = os.environ.get('VERCEL_URL')
+                        else:
+                            # You should replace this with your actual production domain
+                            # For example: "your-custom-domain.com" or "your-vercel-project.vercel.app"
+                            production_domain = "twitter-autobot.vercel.app"
+                        
+                        # Clean up the domain
+                        if production_domain.startswith('https://'):
+                            production_domain = production_domain[8:]
+                        elif production_domain.startswith('http://'):
+                            production_domain = production_domain[7:]
+                        
+                        # Remove trailing slash if present
+                        production_domain = production_domain.rstrip('/')
+                        
+                        # Remove any path components (just keep the domain)
+                        if '/' in production_domain:
+                            production_domain = production_domain.split('/')[0]
+                        
+                        # Build the final URLs
+                        confirm_url = f"https://{production_domain}/confirm-tweet/{confirmation_token}"
+                        dashboard_url = f"https://{production_domain}/"
+                        
+                        logger.info(f"CRON: Environment VERCEL_URL: {os.environ.get('VERCEL_URL')}")
+                        logger.info(f"CRON: Environment VERCEL_PROJECT_PRODUCTION_URL: {os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')}")
+                        logger.info(f"CRON: Cleaned production domain: {production_domain}")
+                        logger.info(f"CRON: Generated confirm URL: {confirm_url}")
+                        logger.info(f"CRON: Generated dashboard URL: {dashboard_url}")
                         
                         # Render email template
                         with cron_app.app_context():
@@ -222,10 +251,69 @@ def cron_info():
         "available_endpoints": [
             "/api/cron/health - Health check",
             "/api/cron/test - Component testing", 
+            "/api/cron/test-urls - URL generation testing",
             "/api/cron/content-generation - Manual trigger"
         ],
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
+
+@cron_app.route('/api/cron/test-urls', methods=['GET'])
+def test_url_generation():
+    """Test endpoint to verify URL generation"""
+    try:
+        # Test the same logic used in email generation
+        production_domain = None
+        
+        # Priority order for getting the production URL
+        if os.environ.get('VERCEL_PROJECT_PRODUCTION_URL'):
+            production_domain = os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')
+        elif os.environ.get('VERCEL_URL'):
+            production_domain = os.environ.get('VERCEL_URL')
+        else:
+            production_domain = "twitter-autobot.vercel.app"
+        
+        # Clean up the domain - handle all possible formats
+        if production_domain:
+            # Remove protocol if present
+            if production_domain.startswith('https://'):
+                production_domain = production_domain[8:]
+            elif production_domain.startswith('http://'):
+                production_domain = production_domain[7:]
+            
+            # Remove trailing slash if present
+            production_domain = production_domain.rstrip('/')
+            
+            # Remove any path components (just keep the domain)
+            if '/' in production_domain:
+                production_domain = production_domain.split('/')[0]
+        
+        # Build test URLs
+        test_token = "test-token-123"
+        confirm_url = f"https://{production_domain}/confirm-tweet/{test_token}"
+        dashboard_url = f"https://{production_domain}/"
+        
+        return jsonify({
+            "success": True,
+            "environment": {
+                "VERCEL_URL": os.environ.get('VERCEL_URL'),
+                "VERCEL_PROJECT_PRODUCTION_URL": os.environ.get('VERCEL_PROJECT_PRODUCTION_URL'),
+                "VERCEL_ENV": os.environ.get('VERCEL_ENV')
+            },
+            "url_generation": {
+                "production_domain": production_domain,
+                "test_confirm_url": confirm_url,
+                "test_dashboard_url": dashboard_url
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in test_url_generation: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }), 500
 
 # Export the app for Vercel
 app = cron_app

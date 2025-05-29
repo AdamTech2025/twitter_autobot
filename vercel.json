@@ -24,6 +24,10 @@
       "dest": "api/cron.py"
     },
     {
+      "src": "/api/cron/test-urls",
+      "dest": "api/cron.py"
+    },
+    {
       "src": "/(.*)",
       "dest": "api/index.py"
     }
@@ -31,11 +35,15 @@
   "crons": [
     {
       "path": "/api/cron/content-generation",
-      "schedule": "30 3 * * *"
+      "schedule": "30 2 * * *"
     },
     {
       "path": "/api/cron/content-generation",
-      "schedule": "42 10 * * *"
+      "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/content-generation",
+      "schedule": "30 9 * * *"
     },
     {
       "path": "/api/cron/content-generation",
@@ -43,11 +51,7 @@
     },
     {
       "path": "/api/cron/content-generation",
-      "schedule": "0 15 * * *"
-    },
-    {
-      "path": "/api/cron/content-generation",
-      "schedule": "32 13 * * *"
+      "schedule": "30 14 * * *"
     }
   ],
   "env": {
