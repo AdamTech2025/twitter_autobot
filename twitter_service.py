@@ -6,15 +6,25 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env')
-load_dotenv(dotenv_path=dotenv_path, override=True)  # Force override system env vars
+# Load .env file - try multiple paths to be robust
+dotenv_paths = [
+    os.path.join(os.path.dirname(__file__), '.env'),  # Same directory
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'),  # Parent directory
+    '.env'  # Current working directory
+]
+
+for path in dotenv_paths:
+    if os.path.exists(path):
+        load_dotenv(path, override=True)
+        break
+else:
+    # If no .env file found, just load from environment
+    load_dotenv(override=True)
 
 TWITTER_API_KEY = os.getenv("TWITTER_API_KEY")
 TWITTER_API_SECRET_KEY = os.getenv("TWITTER_API_SECRET_KEY")
 
 # Debug logging for environment loading
-logger.info(f"Loading .env from: {dotenv_path}")
 logger.info(f"API Key loaded: {TWITTER_API_KEY[:10] + '...' if TWITTER_API_KEY else 'None'}")
 logger.info(f"API Secret loaded: {TWITTER_API_SECRET_KEY[:10] + '...' if TWITTER_API_SECRET_KEY else 'None'}")
 

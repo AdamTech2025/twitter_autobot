@@ -4,11 +4,20 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 
-# Load .env from the root directory
-# Adjust the number of os.path.dirname calls based on the location of .env relative to this file
-# Assuming .env is in the root of the 'twitter_bot' project, two levels up from app/services/
-dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env')
-load_dotenv(dotenv_path=dotenv_path)
+# Load .env file - try multiple paths to be robust
+dotenv_paths = [
+    os.path.join(os.path.dirname(__file__), '.env'),  # Same directory
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'),  # Parent directory
+    '.env'  # Current working directory
+]
+
+for path in dotenv_paths:
+    if os.path.exists(path):
+        load_dotenv(path)
+        break
+else:
+    # If no .env file found, just load from environment
+    load_dotenv()
 
 EMAIL_SENDER_ADDRESS = os.getenv('EMAIL_SENDER_ADDRESS')
 EMAIL_SENDER_PASSWORD = os.getenv('EMAIL_SENDER_PASSWORD')
